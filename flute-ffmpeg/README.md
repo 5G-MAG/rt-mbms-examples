@@ -1,5 +1,14 @@
 # rt-mbms-examples - FLUTE FFMPEG
 
+The goal of this example project is to provide a tool to enable rt-mbms-mw development without the need for the
+rt-mbms-modem. The basic idea is depicted in the illustration below:
+
+![Architecture](files/wiki/flute-ffmpeg-architecture.png)
+
+We use ffmpeg to create a DASH live stream from a VoD file. The resulting manifest files and segments are written to a watchfolder
+and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js can be used
+for playback.
+
 ## Installation
 
 ### Install dependencies
@@ -128,11 +137,13 @@ Important: In order for the manifest files and the media segments to be availabl
 processing needs to be enabled in the configuration of the MW.
 
 Open the configuration file:
+
 ````
 sudo nano sudo nano /etc/5gmag-rt.conf 
 ````
 
 Adjust the configuration accordingly:
+
 ````
 mw: {
   flute_ffmpeg: {
@@ -167,6 +178,7 @@ sh ffmpeg-dash.sh
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
 
 #### Other players
+
 The streams can also be played outside of the rt-wui for instance in a plain dash.js.
 
 
