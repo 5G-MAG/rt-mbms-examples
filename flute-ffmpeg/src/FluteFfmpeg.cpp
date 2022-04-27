@@ -1,6 +1,6 @@
 // 5G-MAG Reference Tools
 // Flute ffmpeg
-//
+// Daniel Silhavy
 //
 // Licensed under the License terms and conditions for use, reproduction, and
 // distribution of 5G-MAG software (the “License”).  You may not use this file
@@ -27,7 +27,7 @@ FluteFfmpeg::FluteFfmpeg(const libconfig::Config &cfg)
   _cfg.lookupValue("general.mtu", _mtu);
   _cfg.lookupValue("general.rate_limit", _rate_limit);
   _cfg.lookupValue("general.watchfolder_path", _watchfolder_path);
-  _cfg.lookupValue("general.service_announcement_path", _service_announcement_path);
+  _cfg.lookupValue("general.service_announcement", _service_announcement);
   _cfg.lookupValue("general.number_of_dash_init_segments", _number_of_dash_init_segments);
   _transmitter = std::make_unique<LibFlute::Transmitter>(_transmitter_multicast_ip, _transmitter_multicast_port, 0,
                                                          _mtu, _rate_limit, io_service);
@@ -54,7 +54,6 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
   );
 
   spdlog::info("Queued {}  for transmission, TOI is {}", path, toi);
-
 }
 
 void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent) {
@@ -72,7 +71,7 @@ void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &
 
 void FluteFfmpeg::send_service_announcement() {
   spdlog::info("Sending Service Announcement");
-  send_by_flute(_service_announcement_path, "application/mbms-user-service-description+xml");
+  send_by_flute(_service_announcement, "application/mbms-user-service-description+xml");
 }
 
 void FluteFfmpeg::send_init_segments() {

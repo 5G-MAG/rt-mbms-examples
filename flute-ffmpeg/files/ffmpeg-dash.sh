@@ -5,7 +5,7 @@ timestamp="$(date +%s)"
 
 ffmpeg \
 \
--re -fflags +genpts -stream_loop -1 -i files/content/01_llama_drama_1080p.mp4 \
+-re -fflags +genpts -stream_loop -1 -i content/01_llama_drama_1080p.mp4 \
 \
 -flags +global_header -r 30000/1000 \
 \

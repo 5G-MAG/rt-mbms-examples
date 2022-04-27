@@ -1,0 +1,4 @@
+[submodule "lib/rt-libflute"]
+	path = lib/rt-libflute
+	url = ../rt-libflute
+	branch = development

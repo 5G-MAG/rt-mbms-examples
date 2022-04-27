@@ -14,19 +14,16 @@
 // under the License.
 //
 
-#include <cstdlib>
-#include <string>
 #include <libconfig.h++>
-#include "src/FluteFfmpeg.h"
+#include "src/HttpHandler.h"
+#include "pistache/endpoint.h"
 #include "spdlog/spdlog.h"
 
-using namespace std;
 using namespace libconfig;
 using libconfig::FileIOException;
 using libconfig::ParseException;
 
 const char *CONFIG_FILE = "../config/config.cfg";
-
 
 int main() {
   Config cfg;
@@ -41,11 +38,14 @@ int main() {
     spdlog::error("Config parse error at {}:{} - {}. Exiting.", pex.getFile(), pex.getLine(), pex.getError());
     exit(1);
   }
+  int port = 3010;
+  cfg.lookupValue("general.webserver_port", port);
 
-  // Start FluteFfmpeg
-  auto *ff = new FluteFfmpeg(cfg);
-  ff->register_directory_watcher();
-  ff->io_service.run();
+  Pistache::Address addr(Pistache::Ipv4::any(), Pistache::Port(port));
+  auto opts = Pistache::Http::Endpoint::options();
+
+  Http::Endpoint server(addr);
+  server.init(opts);
+  server.setHandler(Http::make_handler<HttpHandler>());
+  server.serve();
 }
-
-

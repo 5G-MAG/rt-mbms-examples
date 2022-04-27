@@ -32,15 +32,62 @@ sudo apt update
 sudo apt install libpistache-dev
 ````
 
-#### Clone the repository
+#### Install Poco
+
+Follow the instructions [here](https://pocoproject.org/download.html)
+
+````
+git clone -b master https://github.com/pocoproject/poco.git
+mkdir cmake-build
+cd cmake-build
+cmake .. && cmake --build .
+sudo cmake --build . --target install
+```` 
+
+## Build
+
+### Clone the repository
 
 ````
 git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-examples
 ```` 
 
-### Configuration
+### Build setup
 
-#### Configure watchfolder output path
+````
+cd rt-mbms-examples/flute-ffmpeg
+mkdir build && cd build
+cmake -GNinja ..
+````
+
+### Building
+
+````
+ninja
+````
+
+This will output two files, containing the watchfolder and FLUTE logic (`flute-ffmpeg`) and the simple webserver that
+provides the mulicast channel information to the middleware (`httpserver`).
+
+## Configuration
+
+Most of the parameters can directly be changed in the configuration file located at `config/config.cfg`. An example
+configuration looks the following
+
+````
+general : {
+          multicast_ip = "238.1.1.95";
+          multicast_port = 40085;
+          mtu = 1500;
+          rate_limit = 50000;
+          watchfolder_path = "/var/www/watchfolder_out";
+          service_announcement = "../files/bootstrap.multipart.dash";
+          number_of_dash_init_segments = 3;
+          webserver_port: 3010;
+}
+````
+
+### Configure watchfolder output path
 
 We assume that the nginx proxy for rt-mbmbs-modem and rt-mbms-mw has been installed and is running. We reuse the nginx
 as a watchfolder. Any other path can be used as well. Using the nginx as a watchfolder enables us to play the generated
@@ -57,19 +104,46 @@ In case you are not using the default path the configuration file needs to be ad
 watchfolder_path = "path/to/folder";
 ````
 
-#### Configure the ffmpeg command
+### Configure the ffmpeg command
 
-In order to generate a DASH stream we provide a pre-configured ffmpeg script `ffmpeg.sh`. In case the watchfolder was
+In order to generate a DASH or HLS stream we provide pre-configured ffmpeg scripts `files/ffmpeg-dash.sh` and `files/ffmpeg-hls.sh` . In case the watchfolder was
 changed or a different input file should be used the script needs to be adjusted accordingly.
 
-#### Configure the RESTful API
+### Configure the RESTful API
 
 rt-mbms-mw requires a multicast channel information file that is usually queried from the REST API of the modem. As part
 of this example project we use a separate webserver that provides the file. By default this server starts with the
 default settings that are also used for the rt-mbms-modem.
 
-Configuration changes can be made in `HttpHandler.cpp` and `main.cpp` of the `httpserver` project.
+Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`.
 
-### MBMS-MW Output
+## Running
 
-Starting FLUTE receiver on 238.1.1.95:40085 for TSI 0
+#### 1. Start the rt-mbms-mw
+
+See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
+
+#### 2. Start the HTTP Server
+
+````
+cd build
+./httpserver
+````
+
+#### 3. Start the DASH/HLS stream
+````
+cd files
+sh ffmpeg-dash.sh
+````
+
+#### 3. Start FLUTE ffmpeg
+
+````
+cd build
+./flute-ffmpeg
+````
+
+#### 4. Start the rt-wui
+See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
+
+

@@ -1,6 +1,6 @@
 // 5G-MAG Reference Tools
 // Flute ffmpeg
-//
+// Daniel Silhavy
 //
 // Licensed under the License terms and conditions for use, reproduction, and
 // distribution of 5G-MAG software (the “License”).  You may not use this file
@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and limitations
 // under the License.
 //
-
 #ifndef WATCHFOLDER_FLUTEFFMPEG_H
 #define WATCHFOLDER_FLUTEFFMPEG_H
 
@@ -33,7 +32,7 @@ private:
   unsigned _mtu = 1500;
   uint32_t _rate_limit = 50000;
   std::string _watchfolder_path = "/var/www/watchfolder_out";
-  std::string _service_announcement_path = "../files/bootstrap.multipart";
+  std::string _service_announcement = "../files/bootstrap.multipart.dash";
   unsigned _number_of_dash_init_segments = 3;
   std::string DASH_CONTENT_TYPE = "application/dash+xml";
 
