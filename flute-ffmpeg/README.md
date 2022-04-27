@@ -106,8 +106,9 @@ watchfolder_path = "path/to/folder";
 
 ### Configure the ffmpeg command
 
-In order to generate a DASH or HLS stream we provide pre-configured ffmpeg scripts `files/ffmpeg-dash.sh` and `files/ffmpeg-hls.sh` . In case the watchfolder was
-changed or a different input file should be used the script needs to be adjusted accordingly.
+In order to generate a DASH or HLS stream we provide pre-configured ffmpeg scripts `files/ffmpeg-dash.sh`
+and `files/ffmpeg-hls.sh` . In case the watchfolder was changed or a different input file should be used the script
+needs to be adjusted accordingly.
 
 ### Configure the RESTful API
 
@@ -122,6 +123,23 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 #### 1. Start the rt-mbms-mw
 
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
+
+Important: In order for the manifest files and the media segments to be available from the Middleware flute_ffmpeg
+processing needs to be enabled in the configuration of the MW.
+
+Open the configuration file:
+````
+sudo nano sudo nano /etc/5gmag-rt.conf 
+````
+
+Adjust the configuration accordingly:
+````
+mw: {
+  flute_ffmpeg: {
+    enabled:true
+  }
+}
+````
 
 #### 2. Start the HTTP Server
 
@@ -138,12 +156,14 @@ cd build
 ````
 
 #### 4. Start the DASH/HLS stream
+
 ````
 cd files
 sh ffmpeg-dash.sh
 ````
 
 #### 4. Start the rt-wui
+
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
 
 
