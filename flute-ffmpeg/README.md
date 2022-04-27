@@ -166,4 +166,7 @@ sh ffmpeg-dash.sh
 
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
 
+#### Other players
+The streams can also be played outside of the rt-wui for instance in a plain dash.js.
+
 
