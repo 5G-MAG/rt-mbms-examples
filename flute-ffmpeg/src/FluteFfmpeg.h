@@ -34,6 +34,8 @@ private:
   std::string _watchfolder_path = "/var/www/watchfolder_out";
   std::string _service_announcement = "../files/bootstrap.multipart.dash";
   unsigned _number_of_dash_init_segments = 3;
+  unsigned _resend_dash_init_in_sec = 20;
+  std::chrono::time_point<std::chrono::high_resolution_clock> _last_send_init_time;
   std::string DASH_CONTENT_TYPE = "application/dash+xml";
 
   void on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent);

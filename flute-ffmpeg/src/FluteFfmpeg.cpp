@@ -29,6 +29,7 @@ FluteFfmpeg::FluteFfmpeg(const libconfig::Config &cfg)
   _cfg.lookupValue("general.watchfolder_path", _watchfolder_path);
   _cfg.lookupValue("general.service_announcement", _service_announcement);
   _cfg.lookupValue("general.number_of_dash_init_segments", _number_of_dash_init_segments);
+  _cfg.lookupValue("general.resend_dash_init_in_sec", _resend_dash_init_in_sec);
   _transmitter = std::make_unique<LibFlute::Transmitter>(_transmitter_multicast_ip, _transmitter_multicast_port, 0,
                                                          _mtu, _rate_limit, io_service);
 }
@@ -66,6 +67,11 @@ void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &
     _sa_sent = true;
   }
 
+  auto now = std::chrono::high_resolution_clock::now();
+  if (std::chrono::duration<double, std::milli>(now - _last_send_init_time).count() > _resend_dash_init_in_sec * 1000) {
+    send_init_segments();
+  }
+
   send_by_flute(path);
 }
 
@@ -80,7 +86,7 @@ void FluteFfmpeg::send_init_segments() {
     std::string init_path = _watchfolder_path + "/init-stream" + std::to_string(i) + ".m4s";
     send_by_flute(init_path);
   }
-
+  _last_send_init_time = std::chrono::high_resolution_clock::now();
 }
 
 void FluteFfmpeg::register_directory_watcher() {

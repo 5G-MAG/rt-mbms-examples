@@ -130,17 +130,17 @@ cd build
 ./httpserver
 ````
 
-#### 3. Start the DASH/HLS stream
-````
-cd files
-sh ffmpeg-dash.sh
-````
-
 #### 3. Start FLUTE ffmpeg
 
 ````
 cd build
 ./flute-ffmpeg
+````
+
+#### 4. Start the DASH/HLS stream
+````
+cd files
+sh ffmpeg-dash.sh
 ````
 
 #### 4. Start the rt-wui
