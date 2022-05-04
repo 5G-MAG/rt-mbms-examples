@@ -36,13 +36,17 @@ private:
   unsigned _number_of_dash_init_segments = 3;
   unsigned _resend_dash_init_in_sec = 20;
   std::chrono::time_point<std::chrono::high_resolution_clock> _last_send_init_time;
+  std::string _stream_type = "dash";
   std::string DASH_CONTENT_TYPE = "application/dash+xml";
+  std::string HLS_CONTENT_TYPE = "application/x-mpegURL";
 
   void on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent);
 
+  void process_file(const Poco::DirectoryWatcher::DirectoryEvent &directoryEvent);
+
   void send_by_flute(const std::string &path, std::string content_type);
 
-  void send_init_segments();
+  void send_dash_init_segments();
 
   void send_service_announcement();
 

@@ -27,11 +27,16 @@ FluteFfmpeg::FluteFfmpeg(const libconfig::Config &cfg)
   _cfg.lookupValue("general.mtu", _mtu);
   _cfg.lookupValue("general.rate_limit", _rate_limit);
   _cfg.lookupValue("general.watchfolder_path", _watchfolder_path);
-  _cfg.lookupValue("general.service_announcement", _service_announcement);
-  _cfg.lookupValue("general.number_of_dash_init_segments", _number_of_dash_init_segments);
-  _cfg.lookupValue("general.resend_dash_init_in_sec", _resend_dash_init_in_sec);
+  _cfg.lookupValue("general.dash.number_of_init_segments", _number_of_dash_init_segments);
+  _cfg.lookupValue("general.dash.resend_init_in_sec", _resend_dash_init_in_sec);
+  _cfg.lookupValue("general.stream_type", _stream_type);
   _transmitter = std::make_unique<LibFlute::Transmitter>(_transmitter_multicast_ip, _transmitter_multicast_port, 0,
                                                          _mtu, _rate_limit, io_service);
+
+  std::string sa_path =
+      _stream_type == "dash" ? "general.dash.service_announcement" : "general.hls.service_announcement";
+  _cfg.lookupValue(sa_path, _service_announcement);
+
 }
 
 void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_type = "video/mp4") {
@@ -42,10 +47,11 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
   char *buffer = (char *) malloc(size);
   file.read(buffer, size);
 
-  if (path == _watchfolder_path + "index.mpd") {
+  if (path.find(".mpd") != std::string::npos) {
     content_type = DASH_CONTENT_TYPE;
+  } else if (path.find(".m3u8") != std::string::npos) {
+    content_type = HLS_CONTENT_TYPE;
   }
-
 
   uint32_t toi = _transmitter->send(path,
                                     content_type,
@@ -57,22 +63,33 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
   spdlog::info("Queued {}  for transmission, TOI is {}", path, toi);
 }
 
-void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent) {
-  std::string path = changeEvent.item.path();
-  spdlog::debug("File renamed: Name: {} ", path);
+void FluteFfmpeg::process_file(const Poco::DirectoryWatcher::DirectoryEvent &directoryEvent) {
+  std::string path = directoryEvent.item.path();
 
   if (!_sa_sent) {
     send_service_announcement();
-    send_init_segments();
     _sa_sent = true;
+
+    if (_stream_type == "dash") {
+      send_dash_init_segments();
+    }
   }
 
+  // Resend DASH Init segments periodically
   auto now = std::chrono::high_resolution_clock::now();
-  if (std::chrono::duration<double, std::milli>(now - _last_send_init_time).count() > _resend_dash_init_in_sec * 1000) {
-    send_init_segments();
+  if (_stream_type == "dash" &&
+      std::chrono::duration<double, std::milli>(now - _last_send_init_time).count() > _resend_dash_init_in_sec * 1000) {
+    send_dash_init_segments();
   }
 
   send_by_flute(path);
+}
+
+void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent) {
+  std::string path = changeEvent.item.path();
+  spdlog::info("File renamed: Name: {} ", path);
+
+  process_file(changeEvent);
 }
 
 void FluteFfmpeg::send_service_announcement() {
@@ -80,13 +97,18 @@ void FluteFfmpeg::send_service_announcement() {
   send_by_flute(_service_announcement, "application/mbms-user-service-description+xml");
 }
 
-void FluteFfmpeg::send_init_segments() {
-  spdlog::info("Sending init segments");
-  for (int i = 0; i < _number_of_dash_init_segments; i++) {
-    std::string init_path = _watchfolder_path + "/init-stream" + std::to_string(i) + ".m4s";
-    send_by_flute(init_path);
+void FluteFfmpeg::send_dash_init_segments() {
+  try {
+    spdlog::info("Sending init segments");
+    for (int i = 0; i < _number_of_dash_init_segments; i++) {
+      std::string init_path = _watchfolder_path + "/init-stream" + std::to_string(i) + ".m4s";
+      send_by_flute(init_path);
+    }
+    _last_send_init_time = std::chrono::high_resolution_clock::now();
   }
-  _last_send_init_time = std::chrono::high_resolution_clock::now();
+  catch (...) {
+    spdlog::error("Error sending the DASH init segments");
+  }
 }
 
 void FluteFfmpeg::register_directory_watcher() {
