@@ -5,9 +5,9 @@ rt-mbms-modem. The basic idea is depicted in the illustration below:
 
 ![Architecture](files/wiki/flute-ffmpeg-architecture.png)
 
-We use ffmpeg to create a DASH live stream from a VoD file. The resulting manifest files and segments are written to a watchfolder
-and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js can be used
-for playback.
+We use ffmpeg to create a DASH live stream from a VoD file. The resulting manifest files and segments are written to a
+watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js
+can be used for playback.
 
 ## Installation
 
@@ -88,19 +88,31 @@ general : {
           multicast_ip = "238.1.1.95";
           multicast_port = 40085;
           mtu = 1500;
-          rate_limit = 50000;
+          rate_limit = 1200000;
           watchfolder_path = "/var/www/watchfolder_out";
-          service_announcement = "../files/bootstrap.multipart.dash";
-          number_of_dash_init_segments = 3;
+          stream_type = "hls";
+          dash: {
+            number_of_init_segments = 3;
+            resend_init_in_sec = 30;
+            service_announcement = "../files/bootstrap.multipart.dash";
+          };
+          hls: {
+            service_announcement = "../files/bootstrap.multipart.hls";
+          }
           webserver_port: 3010;
 }
 ````
+
+### Configure the stream format
+
+We support both DASH and HLS with this sample implementation. Depending on the streaming format that you choose
+the `stream_type` setting in the configuration needs to be adjusted accordingly.
 
 ### Configure watchfolder output path
 
 We assume that the nginx proxy for rt-mbmbs-modem and rt-mbms-mw has been installed and is running. We reuse the nginx
 as a watchfolder. Any other path can be used as well. Using the nginx as a watchfolder enables us to play the generated
-DASH manifest and segments before FLUTE encoding them and multicasting to the rt-mbms-mw.
+DASH and HLS manifests and segments before FLUTE encoding them and multicasting to the rt-mbms-mw.
 
 ````
 sudo mkdir /var/www/watchfolder_out
@@ -173,12 +185,17 @@ cd files
 sh ffmpeg-dash.sh
 ````
 
+````
+cd files
+sh ffmpeg-hls.sh
+````
+
 #### 4. Start the rt-wui
 
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
 
 #### Other players
 
-The streams can also be played outside of the rt-wui for instance in a plain dash.js.
+The streams can also be played outside of the rt-wui for instance in a plain dash.js or hls.js.
 
 
