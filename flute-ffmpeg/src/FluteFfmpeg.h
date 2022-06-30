@@ -48,6 +48,8 @@ private:
 
   void send_dash_init_segments();
 
+  void send_hls_master_manifest();
+
   void send_service_announcement();
 
 public:

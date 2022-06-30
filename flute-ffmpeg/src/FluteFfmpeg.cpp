@@ -73,6 +73,10 @@ void FluteFfmpeg::process_file(const Poco::DirectoryWatcher::DirectoryEvent &dir
     if (_stream_type == "dash") {
       send_dash_init_segments();
     }
+
+    if(_stream_type == "hls") {
+      send_hls_master_manifest();
+    }
   }
 
   // Resend DASH Init segments periodically
@@ -95,6 +99,12 @@ void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &
 void FluteFfmpeg::send_service_announcement() {
   spdlog::info("Sending Service Announcement");
   send_by_flute(_service_announcement, "application/mbms-user-service-description+xml");
+}
+
+void FluteFfmpeg::send_hls_master_manifest() {
+  spdlog::info("Sending HLS Master Manifest");
+  std::string manifest_path = _watchfolder_path + "/index.m3u8";
+  send_by_flute(manifest_path,HLS_CONTENT_TYPE);
 }
 
 void FluteFfmpeg::send_dash_init_segments() {
