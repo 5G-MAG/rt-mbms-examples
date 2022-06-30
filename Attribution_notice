@@ -1,0 +1,25 @@
+5G-MAG rt-mbmbs-examples uses the following open source software:
+
+- spdlog by Gabi Melman
+  available at https://github.com/gabime/spdlog
+  Licensed under MIT terms (https://github.com/gabime/spdlog/blob/v1.x/LICENSE)
+
+- libconfig by Mark Lindner
+  available at https://github.com/hyperrealm/libconfig
+  Licensed under LGPL-2.1 terms (https://github.com/hyperrealm/libconfig/blob/master/LICENSE)
+
+- POCO C++ libraries
+  available at https://github.com/pocoproject/poco
+  Licensed under Boost Software License (https://github.com/pocoproject/poco/blob/master/LICENSE)
+
+- Pistache
+  available at https://github.com/pistacheio/pistache
+  Licensed under Apache License 2.0 (https://github.com/pistacheio/pistache/blob/master/LICENSE)
+
+- FFMPEG
+  available at https://github.com/FFmpeg/FFmpeg
+  Licensed under GNU Lesser General Public License version 2.1 (https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md)
+
+- Caminandes Video
+  available at http://www.caminandes.com/
+  Licensed under CC-BY http://staging.caminandes.com/sharing/
