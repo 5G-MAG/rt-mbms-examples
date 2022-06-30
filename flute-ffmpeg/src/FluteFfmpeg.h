@@ -25,7 +25,7 @@
 class FluteFfmpeg {
 private:
   std::unique_ptr<LibFlute::Transmitter> _transmitter;
-  bool _sa_sent = false;
+  bool _first_transmit_iteration = false;
   const libconfig::Config &_cfg;
   std::string _transmitter_multicast_ip = "238.1.1.95";
   unsigned _transmitter_multicast_port = 40085;
@@ -37,6 +37,7 @@ private:
   unsigned _resend_dash_init_in_sec = 20;
   std::chrono::time_point<std::chrono::high_resolution_clock> _last_send_init_time;
   std::string _stream_type = "dash";
+  bool _transmit_service_announcement = true;
   std::string DASH_CONTENT_TYPE = "application/dash+xml";
   std::string HLS_CONTENT_TYPE = "application/x-mpegURL";
 

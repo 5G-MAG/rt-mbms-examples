@@ -30,6 +30,7 @@ FluteFfmpeg::FluteFfmpeg(const libconfig::Config &cfg)
   _cfg.lookupValue("general.dash.number_of_init_segments", _number_of_dash_init_segments);
   _cfg.lookupValue("general.dash.resend_init_in_sec", _resend_dash_init_in_sec);
   _cfg.lookupValue("general.stream_type", _stream_type);
+  _cfg.lookupValue("general.transmit_service_announcement", _transmit_service_announcement);
   _transmitter = std::make_unique<LibFlute::Transmitter>(_transmitter_multicast_ip, _transmitter_multicast_port, 0,
                                                          _mtu, _rate_limit, io_service);
 
@@ -46,6 +47,10 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
 
   char *buffer = (char *) malloc(size);
   file.read(buffer, size);
+
+  if (path.find("m3u8") && (!path.find("index.m3u8") || !path.find("stream_0.m3u8"))) {
+    return;
+  }
 
   if (path.find(".mpd") != std::string::npos) {
     content_type = DASH_CONTENT_TYPE;
@@ -66,9 +71,11 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
 void FluteFfmpeg::process_file(const Poco::DirectoryWatcher::DirectoryEvent &directoryEvent) {
   std::string path = directoryEvent.item.path();
 
-  if (!_sa_sent) {
-    send_service_announcement();
-    _sa_sent = true;
+  if (!_first_transmit_iteration) {
+    if (_transmit_service_announcement) {
+      send_service_announcement();
+    }
+    _first_transmit_iteration = true;
 
     if (_stream_type == "dash") {
       send_dash_init_segments();
