@@ -136,7 +136,8 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
 
 Important: In order for the manifest files and the media segments to be available from the Middleware flute_ffmpeg
-processing needs to be enabled in the configuration of the MW.
+processing needs to be enabled in the configuration of the MW. In addition, we need to define a 60 second `max_file_age` 
+for the middleware cache:
 
 Open the configuration file:
 
@@ -150,6 +151,10 @@ Adjust the configuration accordingly:
 mw: {
   flute_ffmpeg: {
     enabled:true
+  },
+  cache: {
+    max_file_age: 60,
+    max_total_size: 256
   }
 }
 ````
