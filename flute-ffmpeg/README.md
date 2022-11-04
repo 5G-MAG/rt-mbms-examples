@@ -142,7 +142,7 @@ for the middleware cache:
 Open the configuration file:
 
 ````
-sudo nano sudo nano /etc/5gmag-rt.conf 
+sudo nano /etc/5gmag-rt.conf 
 ````
 
 Adjust the configuration accordingly:
