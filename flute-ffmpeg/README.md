@@ -1,17 +1,18 @@
 # rt-mbms-examples - FLUTE FFMPEG
 
-The goal of this example project is to provide a tool to enable rt-mbms-mw development without the need for the
+The goal of this example project is to provide a tool that enables rt-mbms-mw development without the need for the
 rt-mbms-modem. The basic idea is depicted in the illustration below:
 
 ![Architecture](files/wiki/flute-ffmpeg-architecture.png)
 
-We use ffmpeg to create a DASH live stream from a VoD file. The resulting manifest files and segments are written to a
-watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js
+We use ffmpeg to create a DASH or HLS live stream from a VoD file. The resulting manifest files and segments are written to a
+watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js/hls.js
 can be used for playback.
 
 ## Installation
 
 ### Install dependencies
+To use this project several dependencies need to be installed:
 
 #### Install Poco
 
@@ -41,18 +42,6 @@ sudo apt update
 sudo apt install libpistache-dev
 ````
 
-#### Install Poco
-
-Follow the instructions [here](https://pocoproject.org/download.html)
-
-````
-git clone -b master https://github.com/pocoproject/poco.git
-mkdir cmake-build
-cd cmake-build
-cmake .. && cmake --build .
-sudo cmake --build . --target install
-```` 
-
 ## Build
 
 ### Clone the repository
@@ -75,8 +64,9 @@ cmake -GNinja ..
 ninja
 ````
 
-This will output two files, containing the watchfolder and FLUTE logic (`flute-ffmpeg`) and the simple webserver that
-provides the mulicast channel information to the middleware (`httpserver`).
+This will output two files:  
+* The watchfolder and FLUTE logic (`flute-ffmpeg`) 
+* The simple webserver that provides the mulicast channel information to the middleware (`httpserver`).
 
 ## Configuration
 
@@ -146,12 +136,13 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
 
 Important: In order for the manifest files and the media segments to be available from the Middleware flute_ffmpeg
-processing needs to be enabled in the configuration of the MW.
+processing needs to be enabled in the configuration of the MW. In addition, we need to define a 60 second `max_file_age` 
+for the middleware cache:
 
 Open the configuration file:
 
 ````
-sudo nano sudo nano /etc/5gmag-rt.conf 
+sudo nano /etc/5gmag-rt.conf 
 ````
 
 Adjust the configuration accordingly:
@@ -160,6 +151,10 @@ Adjust the configuration accordingly:
 mw: {
   flute_ffmpeg: {
     enabled:true
+  },
+  cache: {
+    max_file_age: 60,
+    max_total_size: 256
   }
 }
 ````
