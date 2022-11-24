@@ -30,13 +30,27 @@ FluteFfmpeg::FluteFfmpeg(const libconfig::Config &cfg)
   _cfg.lookupValue("general.dash.number_of_init_segments", _number_of_dash_init_segments);
   _cfg.lookupValue("general.dash.resend_init_in_sec", _resend_dash_init_in_sec);
   _cfg.lookupValue("general.stream_type", _stream_type);
-  _transmitter = std::make_unique<LibFlute::Transmitter>(_transmitter_multicast_ip, _transmitter_multicast_port, 0,
-                                                         _mtu, _rate_limit, io_service);
+  _cfg.lookupValue("general.transmit_service_announcement", _transmit_service_announcement);
+  _cfg.lookupValue("general.path_to_transmit", _path_to_transmit);
+
 
   std::string sa_path =
       _stream_type == "dash" ? "general.dash.service_announcement" : "general.hls.service_announcement";
   _cfg.lookupValue(sa_path, _service_announcement);
 
+  const libconfig::Setting &hls_media_playlists_to_ignore = _cfg.lookup(
+      "general.hls.media_playlists_to_ignore_in_multicast");
+  for (int i = 0; i < hls_media_playlists_to_ignore.getLength(); i++) {
+    _hls_media_playlists_to_ignore_in_multicast.push_back(hls_media_playlists_to_ignore[i]);
+  }
+
+  _setup_flute_transmitter();
+}
+
+void FluteFfmpeg::_setup_flute_transmitter() {
+  spdlog::info("Setting up FLUTE Transmitter at {}:{}", _transmitter_multicast_ip, _transmitter_multicast_port);
+  _transmitter = std::make_unique<LibFlute::Transmitter>(_transmitter_multicast_ip, _transmitter_multicast_port, 0,
+                                                         _mtu, _rate_limit, io_service);
 }
 
 void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_type = "video/mp4") {
@@ -47,13 +61,27 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
   char *buffer = (char *) malloc(size);
   file.read(buffer, size);
 
+  // Check if the current file is on the ignore list
+  if (path.find("m3u8") &&
+      std::find(_hls_media_playlists_to_ignore_in_multicast.begin(), _hls_media_playlists_to_ignore_in_multicast.end(),
+                path) != _hls_media_playlists_to_ignore_in_multicast.end()) {
+    return;
+  }
+
+
   if (path.find(".mpd") != std::string::npos) {
     content_type = DASH_CONTENT_TYPE;
   } else if (path.find(".m3u8") != std::string::npos) {
     content_type = HLS_CONTENT_TYPE;
   }
 
-  uint32_t toi = _transmitter->send(path,
+  // Adjust the pathname of the file we transmit to enable correct handling on the receiver side
+  std::string filepath_to_transmit = path;
+  if(_path_to_transmit.length()) {
+    std::string base_filename = path.substr(path.find_last_of("/\\") + 1);
+    filepath_to_transmit =   _path_to_transmit + base_filename;
+  }
+  uint32_t toi = _transmitter->send(filepath_to_transmit,
                                     content_type,
                                     _transmitter->seconds_since_epoch() + 60, // 1 minute from now
                                     buffer,
@@ -66,9 +94,11 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
 void FluteFfmpeg::process_file(const Poco::DirectoryWatcher::DirectoryEvent &directoryEvent) {
   std::string path = directoryEvent.item.path();
 
-  if (!_sa_sent) {
-    send_service_announcement();
-    _sa_sent = true;
+  if (!_first_transmit_iteration) {
+    if (_transmit_service_announcement) {
+      send_service_announcement();
+    }
+    _first_transmit_iteration = true;
 
     if (_stream_type == "dash") {
       send_dash_init_segments();
@@ -91,7 +121,7 @@ void FluteFfmpeg::process_file(const Poco::DirectoryWatcher::DirectoryEvent &dir
 
 void FluteFfmpeg::on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent) {
   std::string path = changeEvent.item.path();
-  spdlog::info("File renamed: Name: {} ", path);
+  spdlog::debug("File renamed: Name: {} ", path);
 
   process_file(changeEvent);
 }

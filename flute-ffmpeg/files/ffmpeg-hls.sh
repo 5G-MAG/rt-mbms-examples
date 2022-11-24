@@ -19,6 +19,6 @@ scale=960x540[v2out]" \
 -hls_delete_threshold 1 \
 -hls_flags independent_segments+delete_segments+temp_file \
 -hls_segment_type mpegts \
--hls_segment_filename /var/www/watchfolder_out/stream_%v_data%02d.ts \
--master_pl_name index.m3u8 \
--var_stream_map "v:0,a:0 v:1,a:1" /var/www/watchfolder_out/stream_%v.m3u8
+-hls_segment_filename /home/dsi/5G-MAG/simple-express-server/public/watchfolder/hls/stream_%v_data%02d.ts \
+-master_pl_name manifest.m3u8 \
+-var_stream_map "v:0,a:0 v:1,a:1" /home/dsi/5G-MAG/simple-express-server/public/watchfolder/hls/stream_%v.m3u8

@@ -25,20 +25,23 @@
 class FluteFfmpeg {
 private:
   std::unique_ptr<LibFlute::Transmitter> _transmitter;
-  bool _sa_sent = false;
+  bool _first_transmit_iteration = false;
   const libconfig::Config &_cfg;
   std::string _transmitter_multicast_ip = "238.1.1.95";
   unsigned _transmitter_multicast_port = 40085;
   unsigned _mtu = 1500;
   uint32_t _rate_limit = 50000;
   std::string _watchfolder_path = "/var/www/watchfolder_out";
+  std::string _path_to_transmit = "";
   std::string _service_announcement = "../files/bootstrap.multipart.dash";
   unsigned _number_of_dash_init_segments = 3;
   unsigned _resend_dash_init_in_sec = 20;
   std::chrono::time_point<std::chrono::high_resolution_clock> _last_send_init_time;
   std::string _stream_type = "dash";
+  bool _transmit_service_announcement = true;
   std::string DASH_CONTENT_TYPE = "application/dash+xml";
   std::string HLS_CONTENT_TYPE = "application/x-mpegURL";
+  std::vector<std::string> _hls_media_playlists_to_ignore_in_multicast;
 
   void on_file_renamed(const Poco::DirectoryWatcher::DirectoryEvent &changeEvent);
 
@@ -52,6 +55,7 @@ private:
 
   void send_service_announcement();
 
+  void _setup_flute_transmitter();
 public:
   boost::asio::io_service io_service;
 
