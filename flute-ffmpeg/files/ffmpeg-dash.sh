@@ -41,4 +41,4 @@ scale=960x540[s1]" \
 -window_size 50 \
 -remove_at_exit 1 \
 -adaptation_sets 'id=0,streams=v id=1,streams=a' \
--f dash /var/www/watchfolder_out/index.mpd
+-f dash /home/dsi/5G-MAG/simple-express-server/public/watchfolder/dash/manifest.mpd

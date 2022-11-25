@@ -22,7 +22,7 @@ Content-Location: file:///envelope.xml
         validUntil="2051-08-26T08:29:39Z"
         version="1"/>
   <item contentType="application/dash+xml"
-        metadataURI="http://10.160.82.131/out/u/bbb/q6a/manifest.mpd"
+        metadataURI="http://10.160.82.131/f/out/watchfolder/dash/"
         validFrom="2021-09-02T08:29:39Z"
         validUntil="2051-08-26T08:29:39Z"
         version="1"/>
@@ -61,7 +61,7 @@ a=mbms-mode:broadcast-mbsfn 269087077
 c=IN IP4 238.1.1.111/127
 b=AS:3045
 m=application 40101 FLUTE/UDP 0
-a=flute-tsi:16
+a=flute-tsi:0
 a=flute-ch:1
 a=3GPP-QoE-Metrics:metrics={Object_Loss};rate=null;resolution=10
 a=3GPP-QoE-Metrics:metrics={Network_Resource};rate=null;resolution=10
@@ -137,7 +137,7 @@ Content-Location: file:///TMGI-0x1009f165.mpd
 --xxx.yyy.zzz.--Rohde&Schwarz-BSCC--zzz.yyy.xxx--
 Content-Type: application/dash+xml
 Content-Transfer-Encoding: 7bit
-Content-Location: http://10.160.82.131/out/u/bbb/q6a/manifest.mpd
+Content-Location: http://10.160.82.131/f/out/watchfolder/dash/
 
 <?xml version="1.0" encoding="utf-8"?>
 <MPD xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="urn:mpeg:dash:schema:mpd:2011" xmlns:scte35="urn:scte:scte35:2013:xml" xsi:schemaLocation="urn:mpeg:dash:schema:mpd:2011 http://standards.iso.org/ittf/PubliclyAvailableStandards/MPEG-DASH_schema_files/DASH-MPD.xsd" id="158" type="dynamic" publishTime="2021-09-02T08:29:28" minimumUpdatePeriod="PT25S" availabilityStartTime="2021-03-28T14:44:51Z" minBufferTime="PT60S" suggestedPresentationDelay="PT25.000S" timeShiftBufferDepth="PT92.160S" profiles="urn:hbbtv:dash:profile:isoff-live:2012,urn:mpeg:dash:profile:isoff-live:2011">
@@ -241,7 +241,7 @@ Content-Location: file:///usdBundle.xml
       </r12:broadcastAppService>
       <sv:delimiter>0</sv:delimiter>
     </deliveryMethod>
-    <r12:appService appServiceDescriptionURI="http://10.160.82.131/out/u/bbb/q6a/manifest.mpd"
+    <r12:appService appServiceDescriptionURI="http://10.160.82.131/f/out/watchfolder/dash/"
                     mimeType="application/dash+xml;profiles=urn:3GPP:PSS:profile:DASH10"/>
     <r9:mediaPresentationDescription>
       <mpdURI>file:///TMGI-0x1009f165.mpd</mpdURI>
