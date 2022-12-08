@@ -75,19 +75,22 @@ configuration looks the following
 
 ````
 general : {
-          multicast_ip = "238.1.1.95";
-          multicast_port = 40085;
+          multicast_ip = "238.1.1.111";
+          multicast_port = 40101;
           mtu = 1500;
           rate_limit = 1200000;
-          watchfolder_path = "/var/www/watchfolder_out";
+          watchfolder_path = "/home/dsi/5G-MAG/simple-express-server/public/watchfolder/hls";
+          path_to_transmit = ""
           stream_type = "hls";
+          transmit_service_announcement = false;
           dash: {
-            number_of_init_segments = 3;
-            resend_init_in_sec = 30;
-            service_announcement = "../files/bootstrap.multipart.dash";
+              number_of_init_segments = 3;
+              resend_init_in_sec = 30;
+              service_announcement = "../files/bootstrap.multipart.dash";
           };
           hls: {
-            service_announcement = "../files/bootstrap.multipart.hls";
+              service_announcement = "../files/bootstrap.multipart.hls";
+              media_playlists_to_ignore_in_multicast = []
           }
           webserver_port: 3010;
 }

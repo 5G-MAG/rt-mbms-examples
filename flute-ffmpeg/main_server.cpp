@@ -23,7 +23,7 @@ using namespace libconfig;
 using libconfig::FileIOException;
 using libconfig::ParseException;
 
-const char *CONFIG_FILE = "../config/config.cfg";
+const char *CONFIG_FILE = "../config/default.cfg";
 
 int main() {
   Config cfg;
