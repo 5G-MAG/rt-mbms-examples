@@ -77,10 +77,9 @@ void FluteFfmpeg::send_by_flute(const std::string &path, std::string content_typ
 
   // Adjust the pathname of the file we transmit to enable correct handling on the receiver side
   std::string filepath_to_transmit = path;
-  if(_path_to_transmit.length()) {
-    std::string base_filename = path.substr(path.find_last_of("/\\") + 1);
-    filepath_to_transmit =   _path_to_transmit + base_filename;
-  }
+  std::string base_filename = path.substr(path.find_last_of("/\\") + 1);
+  filepath_to_transmit = _path_to_transmit + base_filename;
+
   uint32_t toi = _transmitter->send(filepath_to_transmit,
                                     content_type,
                                     _transmitter->seconds_since_epoch() + 60, // 1 minute from now
@@ -104,7 +103,7 @@ void FluteFfmpeg::process_file(const Poco::DirectoryWatcher::DirectoryEvent &dir
       send_dash_init_segments();
     }
 
-    if(_stream_type == "hls") {
+    if (_stream_type == "hls") {
       send_hls_master_manifest();
     }
   }
@@ -133,8 +132,8 @@ void FluteFfmpeg::send_service_announcement() {
 
 void FluteFfmpeg::send_hls_master_manifest() {
   spdlog::info("Sending HLS Master Manifest");
-  std::string manifest_path = _watchfolder_path + "/index.m3u8";
-  send_by_flute(manifest_path,HLS_CONTENT_TYPE);
+  std::string manifest_path = _watchfolder_path + "/manifest.m3u8";
+  send_by_flute(manifest_path, HLS_CONTENT_TYPE);
 }
 
 void FluteFfmpeg::send_dash_init_segments() {

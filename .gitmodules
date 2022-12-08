@@ -1,0 +1,4 @@
+[submodule "flute-ffmpeg/supporting_files"]
+	path = flute-ffmpeg/supporting_files
+	url = https://github.com/5G-MAG/rt-common-shared
+	branch = feature/mbms
