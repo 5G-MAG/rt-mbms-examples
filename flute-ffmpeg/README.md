@@ -132,7 +132,7 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 
 ### Start the rt-mbms-mw
 
-See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
+Find more information at the [rt-mbms-mw](https://github.com/5G-MAG/rt-mbms-mw) repository.
 
 Important: In order for the manifest files and the media segments to be available from the Middleware flute_ffmpeg
 processing needs to be enabled in the configuration of the MW. In addition, we need to define a 60 second `max_file_age` 
@@ -186,7 +186,7 @@ sh ffmpeg-hls.sh
 
 ### Start the rt-mbms-wui
 
-Find more information at the [rt-mbms-wui](https://github.com/5G-MAG/rt-mbms-wui) for details repository
+Find more information at the [rt-mbms-wui](https://github.com/5G-MAG/rt-mbms-wui) repository.
 
 #### Other players
 
