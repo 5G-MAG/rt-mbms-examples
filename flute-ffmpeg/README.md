@@ -1,7 +1,13 @@
 # rt-mbms-examples - FLUTE FFMPEG
 
+## Introduction
+
 The goal of this example project is to provide a tool that enables rt-mbms-mw development without the need for the
-rt-mbms-modem. The basic idea is depicted in the illustration below:
+rt-mbms-modem.
+
+### About the implementation
+
+The basic idea is depicted in the illustration below:
 
 ![Architecture](files/wiki/flute-ffmpeg-architecture.png)
 
@@ -9,12 +15,11 @@ We use ffmpeg to create a DASH or HLS live stream from a VoD file. The resulting
 watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js/hls.js
 can be used for playback.
 
-## Installation
+## Install dependencies
 
-### Install dependencies
 To use this project several dependencies need to be installed:
 
-#### Install Poco
+### Install Poco
 
 We use the Poco directory watcher to implement the watchfolder behavior. In order to install Poco follow the
 instructions [here](https://pocoproject.org/download.html).
@@ -31,7 +36,7 @@ cmake --build . --config Release
 sudo cmake --build . --target install
 ````
 
-#### Install libpistache
+### Install libpistache
 
 We use pistache as a REST framework to initialize the rt-mbms-mw. We expose only one route that returns the multicast
 channel information.
@@ -42,25 +47,16 @@ sudo apt update
 sudo apt install libpistache-dev
 ````
 
-## Build
-
-### Clone the repository
-
+## Downloading
 ````
 git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-examples
 ```` 
 
-### Build setup
-
+### Building
 ````
 cd rt-mbms-examples/flute-ffmpeg
 mkdir build && cd build
 cmake -GNinja ..
-````
-
-### Building
-
-````
 ninja
 ````
 
@@ -134,7 +130,7 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 
 ## Running
 
-#### 1. Start the rt-mbms-mw
+### Start the rt-mbms-mw
 
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
 
@@ -162,21 +158,21 @@ mw: {
 }
 ````
 
-#### 2. Start the HTTP Server
+### Start the HTTP Server
 
 ````
 cd build
 ./httpserver
 ````
 
-#### 3. Start FLUTE ffmpeg
+### Start FLUTE ffmpeg
 
 ````
 cd build
 ./flute-ffmpeg
 ````
 
-#### 4. Start the DASH/HLS stream
+### Start the DASH/HLS stream
 
 ````
 cd files
@@ -188,7 +184,7 @@ cd files
 sh ffmpeg-hls.sh
 ````
 
-#### 4. Start the rt-wui
+### Start the rt-wui
 
 See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
 
