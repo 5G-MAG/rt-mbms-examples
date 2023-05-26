@@ -12,7 +12,7 @@ The basic idea is depicted in the illustration below:
 ![Architecture](files/wiki/flute-ffmpeg-architecture.png)
 
 We use ffmpeg to create a DASH or HLS live stream from a VoD file. The resulting manifest files and segments are written to a
-watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js/hls.js
+watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-mbms-wui or a plain dash.js/hls.js
 can be used for playback.
 
 ## Install dependencies
@@ -184,9 +184,9 @@ cd files
 sh ffmpeg-hls.sh
 ````
 
-### Start the rt-wui
+### Start the rt-mbms-wui
 
-See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
+Find more information at the [rt-mbms-wui](https://github.com/5G-MAG/rt-mbms-wui) for details repository
 
 #### Other players
 
