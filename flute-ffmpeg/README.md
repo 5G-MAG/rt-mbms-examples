@@ -138,7 +138,7 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 
 #### 1. Start the rt-mbms-mw
 
-See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/MBMS-Middleware) for details
+See the [documentation](https://github.com/5G-MAG/rt-mbms-mw) for details
 
 Important: In order for the manifest files and the media segments to be available from the Middleware flute_ffmpeg
 processing needs to be enabled in the configuration of the MW. In addition, we need to define a 60 second `max_file_age` 
@@ -192,10 +192,8 @@ sh ffmpeg-hls.sh
 
 #### 4. Start the rt-wui
 
-See our [Wiki](https://github.com/5G-MAG/Documentation-and-Architecture/wiki/Webinterface) for details
+See the [documentation](https://github.com/5G-MAG/rt-wui) for details.
 
 #### Other players
 
 The streams can also be played outside of the rt-wui for instance in a plain dash.js or hls.js.
-
-
