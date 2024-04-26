@@ -1,4 +1,4 @@
-<h1 align="center">FLUTE FFMPEG</h1>
+<h1 align="center">FLUTE ffmpeg</h1>
 
 ## Introduction
 
