@@ -1,4 +1,6 @@
-# rt-mbms-examples - FLUTE FFMPEG
+<h1 align="center">FLUTE FFMPEG</h1>
+
+## Introduction
 
 The goal of this example project is to provide a tool that enables rt-mbms-mw development without the need for the
 rt-mbms-modem. The basic idea is depicted in the illustration below:
