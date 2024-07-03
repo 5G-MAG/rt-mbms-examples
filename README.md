@@ -11,6 +11,13 @@ Example projects that make use of other 5G-MAG repositories such as the mw and t
 
 ### FLUTE ffmpeg
 
-The goal of this example project is to provide a tool that enables rt-mbms-mw development without the need for the rt-mbms-modem. We use ffmpeg to create a DASH or HLS live stream from a VoD file. The resulting manifest files and segments are written to a watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js/hls.js can be used for playback.
+The goal of this example project is to provide a tool that enables rt-mbms-mw development without the need for the
+rt-mbms-modem. We use ffmpeg to create a DASH or HLS live stream from a VoD file. The resulting manifest files and
+segments are written to a watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing.
+rt-wui or a plain dash.js/hls.js can be used for playback.
 
-More information can be found in the corresponding [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/development/flute-ffmpeg).
+More information can be found in the
+corresponding [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/development/flute-ffmpeg).
+
+### Simple Express Server
+This simple HTTP server based on express.js can be used to statically host files. 
