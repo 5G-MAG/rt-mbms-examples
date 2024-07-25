@@ -23,4 +23,4 @@ corresponding [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/develo
 This simple HTTP server based on express.js can be used to statically host files. 
 
 More information can be found in the
-corresponding [subfolder](https://github.com/jordijoangimenez/rt-mbms-examples/tree/development/simple-express-server).
+corresponding [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/development/simple-express-server).
