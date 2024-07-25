@@ -2,3 +2,7 @@
 	path = flute-ffmpeg/supporting_files
 	url = https://github.com/5G-MAG/rt-common-shared
 	branch = feature/mbms
+[submodule "flute-ffmpeg/lib/rt-libflute"]
+	path = flute-ffmpeg/lib/rt-libflute
+	url = https://github.com/5G-MAG/rt-libflute
+	branch = development
