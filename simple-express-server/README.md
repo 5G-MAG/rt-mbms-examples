@@ -1,14 +1,31 @@
+<h1 align="center">Simple Express Server</h1>
+
 ## Introduction
 
 This simple HTTP server based on express.js can be used to statically host files.
 
 ## Installation
 
-Run `npm install` to install all dependencies.
+### Clone the repository
+
+````
+git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-examples
+```` 
+
+### Install dependencies
+
+````
+cd rt-mbms-examples/simple-express-server
+npm install
+````
 
 ## Running
+### Start the webserver
 
-Run `npm start` to start the webserver.
+````
+npm start
+````
+### Check the webserver
 
 Navigate to `http://localhost:3333/watchfolder/` to check that the webserver started correctly. You should see a
 message `This worked!`.
