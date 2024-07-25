@@ -24,7 +24,7 @@ instructions [here](https://pocoproject.org/download.html).
 In order to build from source:
 
 ````
-git clone -b master https://github.com/pocoproject/poco.git
+git clone -b main https://github.com/pocoproject/poco.git
 cd poco
 mkdir cmake-build
 cd cmake-build
