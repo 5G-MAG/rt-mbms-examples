@@ -14,7 +14,15 @@ can be used for playback.
 ## Installation
 
 ### Install dependencies
-To use this project several dependencies need to be installed:
+To use this project several dependencies need to be installed. First install the common dependencies:
+
+#### Install common dependencies
+
+```` 
+sudo apt update
+sudo apt install ninja-build libspdlog-dev libboost-all-dev libconfig++-dev
+sudo snap install cmake --classic
+````
 
 #### Install Poco
 
