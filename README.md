@@ -18,9 +18,3 @@ rt-wui or a plain dash.js/hls.js can be used for playback.
 
 More information can be found in the
 corresponding [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/development/flute-ffmpeg).
-
-### Simple Express Server
-This simple HTTP server based on express.js can be used to statically host files. 
-
-More information can be found in the
-corresponding [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/development/simple-express-server).
