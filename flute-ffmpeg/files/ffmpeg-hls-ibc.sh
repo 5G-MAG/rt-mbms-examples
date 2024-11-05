@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ffmpeg -re -stream_loop -1 -i content/01_llama_drama_1080p.mp4 \
+ffmpeg -re -stream_loop -1 -i content/IBC2024.mp4 \
 -filter_complex "drawbox=x=1460:y=0:width=460:height=100:color=black@0.5:t=fill,\
 split=2[v1][v2];\
 [v1]drawtext=text='720p-2.0M':x=1480:y=20:\
