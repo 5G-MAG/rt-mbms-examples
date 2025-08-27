@@ -1,0 +1,35 @@
+FROM ubuntu:22.04
+LABEL authors="Daniel Silhavy"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y \
+        ssh g++ git libboost-atomic-dev libboost-thread-dev libboost-system-dev \
+        libboost-date-time-dev libboost-regex-dev libboost-filesystem-dev \
+        libboost-random-dev libboost-chrono-dev libboost-serialization-dev \
+        libwebsocketpp-dev openssl libssl-dev ninja-build libspdlog-dev \
+        libmbedtls-dev libboost-all-dev libconfig++-dev libsctp-dev libfftw3-dev \
+        vim libcpprest-dev libusb-1.0-0-dev net-tools smcroute python3-psutil \
+        python3-pip clang-tidy gpsd gpsd-clients libgps-dev libgmime-3.0-dev \
+        libtinyxml2-dev libtinyxml2-9 cmake && \
+    pip3 install cpplint psutil && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+
+RUN git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-mw.git
+
+WORKDIR /opt/rt-mbms-mw
+
+RUN git submodule update
+
+RUN mkdir build
+
+WORKDIR /opt/rt-mbms-mw/build
+
+RUN cmake -DCMAKE_INSTALL_PREFIX=/usr -GNinja .. && \
+    ninja && \
+    ninja install
+
+CMD ["mw", "--config","/etc/config/5gmag-rt.conf","--help"]

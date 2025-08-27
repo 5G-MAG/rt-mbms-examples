@@ -1,0 +1,28 @@
+services:
+  mbms-modem:
+    build:
+      context: ./
+      dockerfile: Dockerfile-MBMS-Modem
+    ports:
+      - "3010:3010"
+    volumes:
+      - ./5gmag-rt-routing:/etc/default/5gmag-rt
+      - ./5gmag-rt.conf:/etc/config/5gmag-rt.conf
+  mbms-mw:
+    build:
+      context: ./
+      dockerfile: Dockerfile-MBMS-MW
+    ports:
+      - "3020:3020"
+    volumes:
+      - ./5gmag-rt.conf:/etc/config/5gmag-rt.conf
+  mbms-wui:
+    build:
+      context: ./
+      dockerfile: Dockerfile-MBMS-WUI
+    ports:
+      - "8000:80"
+    volumes:
+      - ./5gmag-rt.conf:/etc/config/5gmag-rt.conf
+
+
