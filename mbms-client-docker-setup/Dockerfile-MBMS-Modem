@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y \
     libfftw3-dev vim libcpprest-dev libusb-1.0-0-dev net-tools smcroute python3-pip \
     clang-tidy gpsd gpsd-clients libgps-dev \
     libsoapysdr-dev soapysdr-tools \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install cmake
@@ -34,10 +35,16 @@ RUN git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-modem.git /
     ninja && \
     ninja install
 
+# Copy entrypoint script
+COPY scripts/entrypoint-modem.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Create fivegmag-rt user
 RUN useradd -m fivegmag-rt
 
 # Set entrypoint (customize as needed)
 USER fivegmag-rt
 WORKDIR /rt-mbms-modem
-CMD ["modem", "--config","/etc/config/5gmag-rt.conf", "--help"]
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]

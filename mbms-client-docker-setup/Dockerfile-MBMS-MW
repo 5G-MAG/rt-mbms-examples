@@ -32,4 +32,8 @@ RUN cmake -DCMAKE_INSTALL_PREFIX=/usr -GNinja .. && \
     ninja && \
     ninja install
 
-CMD ["mw", "--config","/etc/config/5gmag-rt.conf","--help"]
+COPY scripts/entrypoint-mw.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
