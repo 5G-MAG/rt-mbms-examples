@@ -43,7 +43,7 @@ RUN chmod +x /entrypoint.sh
 RUN useradd -m fivegmag-rt
 
 # Set entrypoint (customize as needed)
-USER fivegmag-rt
+# USER fivegmag-rt  # Commented out to run as root for TUN/TAP access
 WORKDIR /rt-mbms-modem
 
 # Set entrypoint

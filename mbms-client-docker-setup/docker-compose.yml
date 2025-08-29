@@ -7,6 +7,8 @@ services:
       - "3010:3010"
     volumes:
       - ./config/5gmag-rt.conf:/etc/config/5gmag-rt.conf
+      - ./recordings/5MHz_MCS16_1kHz25_HLS_q4a_Rel14.raw:/recordings/5MHz_MCS16_1kHz25_HLS_q4a_Rel14.raw
+      - /var/run/avahi-daemon/socket:/var/run/avahi-daemon/socket
     cap_add:
       - NET_ADMIN
     devices:
@@ -14,6 +16,8 @@ services:
       - /var/run/smcroute.sock:/var/run/smcroute.sock
       - /dev/bus/usb:/dev/bus/usb
     privileged: true
+    environment:
+      - SMCROUTE_SOCKET=/var/run/smcroute.sock
 #  mbms-mw:
 #    build:
 #      context: ./

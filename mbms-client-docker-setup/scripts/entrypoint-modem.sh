@@ -17,9 +17,7 @@ if [ ! -c /dev/net/tun ]; then
   exit 1
 fi
 
-echo "1"
 ip tuntap add mode tun $MODEM_TUN_INTERFACE
-echo "2"
 ifconfig $MODEM_TUN_INTERFACE up $MODEM_TUN_ADDRESS
 sysctl -w net.ipv4.conf.$MODEM_TUN_INTERFACE.rp_filter=0
 if [ "$ENABLE_MCAST_ROUTING" = true ] ; then
@@ -28,4 +26,4 @@ if [ "$ENABLE_MCAST_ROUTING" = true ] ; then
   smcroutectl add $MODEM_TUN_INTERFACE 224.0.0.0/4 $MCAST_ROUTE_TARGET
 fi
 
-exec modem --sample-file "../recordings/5MHz_MCS16_1kHz25_HLS_q4a_Rel14.raw" -b 5 --config /etc/config/5gmag-rt.conf
+exec modem --sample-file "/recordings/5MHz_MCS16_1kHz25_HLS_q4a_Rel14.raw" -b 5 --config /etc/config/5gmag-rt.conf
