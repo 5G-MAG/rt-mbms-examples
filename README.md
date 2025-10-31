@@ -7,7 +7,7 @@
 
 ## Introduction
 
-Example projects that make use of other 5G-MAG repositories such as the mw and the modem
+Example projects that make use of other 5G-MAG repositories such as rt-mbms-mw and rt-mbms-modem.
 
 ### FLUTE ffmpeg
 
