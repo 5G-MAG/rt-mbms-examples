@@ -87,9 +87,16 @@ clone() {
     fi
 }
 echo "cloning at $BRANCH"
-for r in rt-mbms-tx rt-mbms-modem;                                   do clone "$r" "$SRC/rt-mbms" || exit 1; done
-for r in rt-mbms-gw rt-mbms-bmsc rt-mbms-client;                     do clone "$r" "$SRC/rt-mbms" --recurse-submodules || exit 1; done
+for r in rt-mbms-tx;                                                 do clone "$r" "$SRC/rt-mbms" || exit 1; done
+# The modem carries srsRAN at lib/srsran, so it needs the same recursion as the other three: without
+# it CMake stops at "does not contain a CMakeLists.txt file", which reads as a broken repository
+# rather than as an unfetched submodule.
+for r in rt-mbms-modem rt-mbms-gw rt-mbms-bmsc rt-mbms-client;       do clone "$r" "$SRC/rt-mbms" --recurse-submodules || exit 1; done
 for r in rt-mbms-application rt-mbms-application-provider;           do clone "$r" "$SRC/rt-mbms" || exit 1; done
+# The Cell Broadcast Centre is not an MBMS component and is not cloned into $SRC/rt-mbms: Public
+# Warning System alerts reach handsets over the cell's own system information. It is checked here
+# anyway because ./07-send-alert.sh needs it, and a reader who cannot build it cannot send one.
+clone rt-pws-cbc "$SRC" || exit 1
 if [ -n "$EXAMPLES_CHECKOUT" ]; then
     # Export the exact checkout without carrying its credentials, build output or untracked files
     # into the container.
@@ -159,12 +166,19 @@ b() {
 b tx       /src/rt-mbms/rt-mbms-tx                   "cmake -S . -B build && cmake --build build -j2"
 b gw       /src/rt-mbms/rt-mbms-gw                   "cmake -S . -B build && cmake --build build -j2"
 b bmsc     /src/rt-mbms/rt-mbms-bmsc                 "cmake -S . -B build && cmake --build build -j2"
-b modem    /src/rt-mbms/rt-mbms-modem                "cmake -S . -B build && cmake --build build -j2"
+# -DCMAKE_POLICY_VERSION_MINIMUM=3.5: lib/srsran opens with cmake_minimum_required(VERSION 2.6) and
+# CMake 4 refuses a minimum below 3.5. Kept identical to the modem row in the demo README, so this
+# checks the documented command rather than a private one.
+b modem    /src/rt-mbms/rt-mbms-modem                "cmake -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build -j2"
 b client   /src/rt-mbms/rt-mbms-client               "cmake -S . -B build && cmake --build build -j2"
 b app      /src/rt-mbms/rt-mbms-application          "npm install"
 b provider /src/rt-mbms/rt-mbms-application-provider "npm install"
 # The origin is a dependency-free Node script, so there is nothing to install: check it parses.
 b origin   /src/rt-mbms/rt-mbms-examples/scripts/mbms-broadcast-demo "node --check media-server.js"
+b cbc      /src/rt-pws-cbc                            "npm install"
+# The zmqrx SoapySDR module: not shipped by SoapySDR or by any component, so nothing receives
+# without it. Built here because "clone and build the components" is not sufficient otherwise.
+b zmqrx    /src/rt-mbms/rt-mbms-examples/scripts/soapy-zmq-bridge "./build.sh"
 
 # No single quotes below: this whole block is inside a single-quoted bash -c, and one would close it.
 nf=$(wc -l < /out/failures); ns=$(wc -l < /out/stale); n=$((nf + ns))

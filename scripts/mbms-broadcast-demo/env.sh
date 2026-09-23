@@ -42,6 +42,11 @@ CLIENT_DIR="${CLIENT_DIR:-$RTMBMS_ROOT/rt-mbms-client}"
 APP_DIR="${APP_DIR:-$RTMBMS_ROOT/rt-mbms-application}"
 PORTAL_DIR="${PORTAL_DIR:-$RTMBMS_ROOT/rt-mbms-application-provider}"
 
+# The Cell Broadcast Centre. It sits outside $RTMBMS_ROOT because it is not an MBMS
+# component: Public Warning System alerts reach handsets over the cell's own system
+# information, so this part of the demo works with no MBMS bearer and no content session.
+CBC_DIR="${CBC_DIR:-$REPOS_ROOT/rt-pws-cbc}"
+
 # The two launchers this demo drives rather than reimplements. They own the component
 # start order, the sudo handling for srsepc, the netns/veth for the receive side and the
 # per-component log files; duplicating any of that here would be a second copy to keep in
@@ -94,6 +99,12 @@ XMB_C_PORT="${XMB_C_PORT:-8543}"
 PORTAL_ENV="${PORTAL_ENV:-$PORTAL_DIR/.env}"
 PORTAL_HOST="${PORTAL_HOST:-127.0.0.1}"
 PORTAL_PORT="${PORTAL_PORT:-8080}"
+
+# rt-pws-cbc (the Cell Broadcast Centre), same arrangement: it refuses to start without
+# AUTH_TOKEN, and its own .env is the single source of that token.
+CBC_ENV="${CBC_ENV:-$CBC_DIR/.env}"
+CBC_HOST="${CBC_HOST:-127.0.0.1}"
+CBC_PORT="${CBC_PORT:-8081}"
 
 # ------------------------------------------------------------------------------------
 # Local content origin

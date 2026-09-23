@@ -1,7 +1,7 @@
 # Tutorial: the whole MBMS Broadcast stack, with a local live origin
 
 Runs the full LTE-based 5G Terrestrial Broadcast (FeMBMS / MBMS) reference stack from a cold
-start: EPC, eNB, MBMS-GW, BM-SC and the portal on the transmit side; a local content origin with
+start: EPC, eNB, MBMS-GW, BM-SC, the portal and the Cell Broadcast Centre on the transmit side; a local content origin with
 a looping live encoder; and rt-mbms-modem, rt-mbms-client and rt-mbms-application on the receive
 side, over a ZeroMQ software radio with no SDR hardware.
 
@@ -47,6 +47,7 @@ sudo apt install git build-essential cmake ninja-build pkg-config \
   libgmime-3.0-dev libtinyxml2-dev libmicrohttpd-dev libgnutls28-dev libcurl4-gnutls-dev \
   libglibmm-2.4-dev libxml++-5.0-dev libsrtp2-dev \
   libsoapysdr-dev soapysdr-tools \
+  libgps-dev \
   clang-tidy \
   nodejs npm python3 ffmpeg tmux iproute2 net-tools curl
 ```
@@ -63,6 +64,9 @@ Where the less obvious ones come from:
 - `libgmime-3.0-dev` and `libtinyxml2-dev` are the **client**'s: it parses the multipart service
   announcement with GMime and its XML fragments with TinyXML2.
 - `libcpprest-dev` is the REST API in both the **modem** and the **client**.
+- `libgps-dev` is the **modem**'s: `src/MeasurementFileWriter.h` includes `<libgpsmm.h>` to stamp
+  measurement records with a GPS position, so the modem does not compile without it. Found by
+  `check-build-from-clean.sh`; development machines had it installed already.
 - `libsoapysdr-dev` and `soapysdr-tools` are needed to build and then verify the `zmqrx` bridge in
   step 3; `SoapySDRUtil` comes from the tools package.
 - `clang-tidy` is not optional tooling for the **client**: its `CMakeLists.txt` sets
@@ -75,23 +79,41 @@ Where the less obvious ones come from:
 ### 2. The components
 
 Clone and build each of these. They are independent repositories with their own READMEs; the build
-command is repeated here only so you can see the whole job at once. All seven are on 5G-MAG, and
-this demo's branch across the set is `feature/mbms-broadcast-demo`.
+command is repeated here only so you can see the whole job at once. All seven are on 5G-MAG.
+
+**Which branch:** the destination for all of this work is `main` in every repository. Until the
+merges land, four repositories carry the work on the interim branch `feature/mbms-broadcast-demo`
+(rt-mbms-tx, rt-mbms-bmsc, rt-mbms-client, rt-mbms-application-provider) and the other three
+(rt-mbms-modem, rt-mbms-gw, rt-mbms-application) are used unchanged. So: clone
+`feature/mbms-broadcast-demo` where it exists, the default branch where it does not, and once the
+merges are done a plain `git clone` of each repository is enough. `check-build-from-clean.sh` falls
+back in exactly that order and prints the branch it used for each component, which is also the
+quickest way to see how far the merges have got.
 
 | Component | Repository | Build |
 |---|---|---|
 | EPC + eNB | [rt-mbms-tx](https://github.com/5G-MAG/rt-mbms-tx) | `cmake -S . -B build && cmake --build build -j$(nproc)` |
 | MBMS-GW | [rt-mbms-gw](https://github.com/5G-MAG/rt-mbms-gw) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
 | BM-SC | [rt-mbms-bmsc](https://github.com/5G-MAG/rt-mbms-bmsc) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
-| Modem | [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem) | `cmake -S . -B build && cmake --build build -j$(nproc)` |
+| Modem | [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem) | `git submodule update --init --recursive && cmake -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build -j$(nproc)` |
 | Client | [rt-mbms-client](https://github.com/5G-MAG/rt-mbms-client) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
 | Application (player UI) | [rt-mbms-application](https://github.com/5G-MAG/rt-mbms-application) | `npm install` |
 | Application Provider (portal) | [rt-mbms-application-provider](https://github.com/5G-MAG/rt-mbms-application-provider) | `npm install` |
+| Cell Broadcast Centre (alerts) | [rt-pws-cbc](https://github.com/5G-MAG/rt-pws-cbc) | `npm install` |
 
 Clone each with its submodules, or run `git submodule update --init --recursive` afterwards:
 the BM-SC carries rt-libflute, libmpdpp and rt-mbms-tx, the client carries rt-libflute,
-rt-common-shared and gzip-hpp, and the MBMS-GW carries rt-mbms-tx. A checkout without them fails
-at configure time complaining about a missing subdirectory rather than about the submodule.
+rt-common-shared and gzip-hpp, the MBMS-GW carries rt-mbms-tx, and the modem carries srsRAN at
+`lib/srsran`. A checkout without them fails at configure time complaining about a missing
+subdirectory rather than about the submodule.
+
+**Why the modem needs `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`:** its `lib/srsran` submodule opens with
+`cmake_minimum_required(VERSION 2.6)`, and CMake 4 (4.2.3 on Ubuntu 26.04) refuses a minimum below
+3.5, stopping at configure time with *Compatibility with CMake < 3.5 has been removed from CMake*.
+The flag is a caller-side workaround, not a fix: the fix is to raise that line in
+[5G-MAG/srsRAN](https://github.com/5G-MAG/srsRAN) (branch `fembms`, `CMakeLists.txt` line 33), which
+is outside this demo's set of repositories. rt-mbms-tx carried the identical line and was fixed in
+place, which is why its build command above needs no flag. On CMake 3.x neither is needed.
 
 **Building on a machine with little memory:** the BM-SC and the client each compile large
 translation units. `-j$(nproc)` on a 14 GB machine already running another demo was killed by the
@@ -100,13 +122,21 @@ kernel's OOM killer more than once during this work; `-j2` or `-j1` is slower an
 ### 3. The ZeroMQ software radio bridge
 
 The eNB transmits I/Q over ZeroMQ and the modem receives through a SoapySDR module registering a
-`zmqrx` driver. **That module is not shipped by any repository and has to be built from source.**
-The complete source, the build line and the reasoning are in
-[the tutorial's README](../tmux/mbms-broadcast-tutorial/README.md#zeromq-software-radio).
+`zmqrx` driver. That module is not part of SoapySDR and not part of any component, so it ships
+here and is built once:
 
 ```bash
+../soapy-zmq-bridge/build.sh                         # -> libzmqrxSupport.so, found automatically
+../soapy-zmq-bridge/build.sh --install               # or install it into SoapySDR's module path
 SoapySDRUtil --info | grep "Available factories"     # must list zmqrx
 ```
+
+`build.sh` alone is enough: the launchers look in `scripts/soapy-zmq-bridge` for the built module
+before anywhere else. `--install` puts it on SoapySDR's own path and then checks that SoapySDR
+really lists the factory, because a module that loads without registering looks exactly like a
+missing one when the modem starts. `SOAPY_SDR_PLUGIN_PATH` overrides the lookup. None of this is
+needed with a real SDR. What the bridge does and why it subscribes rather than requests is in
+[its own README](../soapy-zmq-bridge/README.md) and the source header.
 
 Without it the modem starts, finds no radio and never syncs, which presents as a receive chain that
 comes up and delivers nothing.
@@ -117,6 +147,13 @@ no bridge is needed.
 
 ### 4. Configuration the scripts do not generate
 
+- **The Cell Broadcast Centre's `.env`**, with `AUTH_TOKEN` set, if you want to send emergency
+  alerts. `rt-pws-cbc` refuses to start without one, for the same reason the portal does. It is
+  cloned next to `rt-mbms/` rather than inside it, because Public Warning System alerts are not an
+  MBMS function: they reach handsets over the cell's own system information, with no MBMS bearer
+  and no content session involved. `CBC_DIR` defaults to `$REPOS_ROOT/rt-pws-cbc`; point it
+  elsewhere if you keep it somewhere else. Skip this and everything except `./07-send-alert.sh`
+  still works.
 - **The portal's `.env`**, with `AUTH_TOKEN` set. `rt-mbms-application-provider` refuses to start
   without it. `start-all.sh` and `status.sh` read it and print the login, so the value belongs
   there and nowhere else; do not copy it into a tracked file.
@@ -162,7 +199,7 @@ This runs, in order:
 
 | Script | What it does |
 |---|---|
-| `01-start-transmit.sh` | EPC, eNB, MBMS-GW, BM-SC and the portal, via the tutorial's `transmit.sh`, then waits for each control port |
+| `01-start-transmit.sh` | EPC, eNB, MBMS-GW, BM-SC and the portal, via the tutorial's `transmit.sh`, then the Cell Broadcast Centre, then waits for each control port |
 | `03-start-media-server.sh` | The local origin (`media-server.js`) and the looping encoder (`live-encoder.sh`), then waits until the presentation is genuinely playable |
 | `05-start-client-and-app.sh` | Modem, client and application inside netns `mbms-rx`, via the tutorial's `receive-netns.sh`, then waits for both REST APIs |
 | `06-provision-live-service.sh` | Creates the xMB service and its Application/Pull session and activates it, which is what puts the content on air |
@@ -183,7 +220,9 @@ When it finishes:
 - **player UI**: <http://10.80.0.2:3000/application> (the application, inside the namespace). The
   default player, hls.js, matches the default `LIVE_FORMAT=hls`.
 - **cell broadcast page**: <http://10.80.0.2:3000/cellbroadcast>
-- **portal**: <http://127.0.0.1:8080> (xMB, RAN and Emergency Alerts tabs). It is behind Basic
+- **Cell Broadcast Centre**: <http://127.0.0.1:8081>, the alert console. Behind Basic auth like
+  the portal, and `start-all.sh`/`status.sh` print its login the same way.
+- **portal**: <http://127.0.0.1:8080> (xMB and RAN tabs; alerts moved to the CBC above). It is behind Basic
   auth, and `start-all.sh` and `status.sh` both print the login, read from the portal's own
   `.env` so it cannot go stale. `SHOW_PORTAL_CREDENTIALS=0` prints where the secret lives
   instead of the secret itself, for a terminal that is being projected or recorded. The player
@@ -231,19 +270,21 @@ diagnostics on; the two config levels need a transmit-side restart (`./start-all
 
 ## Emergency alerts
 
-Alerts do not travel over the MBMS bearer. They go over the cell's own warning signalling, so
+Alerts are issued by `rt-pws-cbc`, a Cell Broadcast Centre, and not by the content portal: warning
+origination and media provisioning are separate jobs, done by separate organisations. They do not
+travel over the MBMS bearer either. They go over the cell's own warning signalling, so
 they work whether or not a content session is active.
 
 ```bash
-./07-send-alert.sh --list                       # the alert types the portal accepts
+./07-send-alert.sh --list                       # the alert types the CBC accepts
 ./07-send-alert.sh etws_test                    # send one, then wait for the modem to report it
 ./07-send-alert.sh cmas_severe "Flood warning" "Move to higher ground."
 ./07-send-alert.sh --cancel                     # Stop Warning for the active alert
 ```
 
 The script only reports success once the receiving modem actually lists the alert
-(`/modem-api/etws_primary_alerts`, `etws_secondary_alerts`, `pws_alerts`), so a portal that
-accepted an alert that never reached the air is reported as a failure, not a success. The same
+(`/modem-api/etws_primary_alerts`, `etws_secondary_alerts`, `pws_alerts`), so a Cell Broadcast
+Centre that accepted an alert that never reached the air is reported as a failure, not a success. The same
 alert appears on the application's cell broadcast page. SIB-carried warning fields propagate
 noticeably slower than MCCH ones, so allow tens of seconds.
 

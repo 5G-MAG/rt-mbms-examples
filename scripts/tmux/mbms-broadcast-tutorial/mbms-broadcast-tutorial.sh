@@ -48,11 +48,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONF="${CONF:-$SCRIPT_DIR/conf}"
 
 # SoapySDR plugin dir holding the "zmqrx" bridge (libzmqrxSupport.so) the modem's
-# ZeroMQ RX uses. This bridge is NOT shipped with the tutorial -- you build it
-# yourself (see README "ZeroMQ software radio"). Point this at the directory
-# holding your built libzmqrxSupport.so, or export SOAPY_SDR_PLUGIN_PATH.
-# Ignored for a real SDR.
-SOAPY_ZMQ_DIR="${SOAPY_SDR_PLUGIN_PATH:-$HOME/soapy-zmq-bridge}"
+# ZeroMQ RX uses. The bridge now ships in this repository, in
+# scripts/soapy-zmq-bridge; run its build.sh once and it is found here. An explicit
+# SOAPY_SDR_PLUGIN_PATH wins, and $HOME/soapy-zmq-bridge remains a fallback for anyone
+# who built it by hand before it shipped. Ignored for a real SDR.
+_REPO_SOAPY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../soapy-zmq-bridge" 2>/dev/null && pwd || true)"
+if [ -n "${SOAPY_SDR_PLUGIN_PATH:-}" ]; then
+    SOAPY_ZMQ_DIR="$SOAPY_SDR_PLUGIN_PATH"
+elif [ -n "$_REPO_SOAPY" ] && [ -f "$_REPO_SOAPY/libzmqrxSupport.so" ]; then
+    SOAPY_ZMQ_DIR="$_REPO_SOAPY"
+else
+    SOAPY_ZMQ_DIR="$HOME/soapy-zmq-bridge"
+fi
 
 # Config filenames (looked up inside $CONF; the transmit/receive C++ components
 # are launched with $CONF as their working directory so relative includes such
@@ -158,7 +165,7 @@ require_exec "$BMSC";   require_exec "$MODEM";  require_exec "$CLIENT_BIN"
 # The portal refuses to start without an auth secret.
 [ -f "$PORTAL_DIR/.env" ]      || echo "WARNING: $PORTAL_DIR/.env not found -- the portal needs AUTH_TOKEN set (see its .env.example)."
 # The modem's ZeroMQ RX needs a user-built SoapySDR "zmqrx" bridge (not shipped).
-[ -f "$SOAPY_ZMQ_DIR/libzmqrxSupport.so" ] || echo "WARNING: no libzmqrxSupport.so in '$SOAPY_ZMQ_DIR' -- the modem's ZeroMQ RX needs the SoapySDR 'zmqrx' bridge, which you build yourself (see README 'ZeroMQ software radio'). Set SOAPY_ZMQ_DIR/SOAPY_SDR_PLUGIN_PATH to its location. Not needed for a real SDR."
+[ -f "$SOAPY_ZMQ_DIR/libzmqrxSupport.so" ] || echo "WARNING: no libzmqrxSupport.so in '$SOAPY_ZMQ_DIR' -- the modem's ZeroMQ RX needs the SoapySDR 'zmqrx' bridge -- build it with scripts/soapy-zmq-bridge/build.sh. Set SOAPY_ZMQ_DIR/SOAPY_SDR_PLUGIN_PATH to its location. Not needed for a real SDR."
 
 mkdir -p "$LOG_DIR"
 tmux kill-session -t "$SESSION" 2>/dev/null   # start clean

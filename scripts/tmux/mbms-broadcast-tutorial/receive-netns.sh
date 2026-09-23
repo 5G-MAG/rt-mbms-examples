@@ -43,7 +43,18 @@ CONF="$TUT/conf"
 MODEM="$UH/rt-mbms-modem/build/modem"
 CLIENT_BIN="$UH/rt-mbms-client/build/client"
 APP_DIR="$UH/rt-mbms-application"
-SOAPY_DIR="${SOAPY_SDR_PLUGIN_PATH:-$UH/soapy-zmq-bridge}"
+# The zmqrx bridge now ships in this repository (scripts/soapy-zmq-bridge) and is built
+# there by its own build.sh, so that is the default. $UH/soapy-zmq-bridge stays as a
+# fallback for anyone who built it by hand before it shipped, and an explicit
+# SOAPY_SDR_PLUGIN_PATH still wins over both.
+_REPO_SOAPY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../soapy-zmq-bridge" 2>/dev/null && pwd || true)"
+if [ -n "${SOAPY_SDR_PLUGIN_PATH:-}" ]; then
+    SOAPY_DIR="$SOAPY_SDR_PLUGIN_PATH"
+elif [ -n "$_REPO_SOAPY" ] && [ -f "$_REPO_SOAPY/libzmqrxSupport.so" ]; then
+    SOAPY_DIR="$_REPO_SOAPY"
+else
+    SOAPY_DIR="$UH/soapy-zmq-bridge"
+fi
 LOG="$UH/.local/state/mbms-broadcast-tutorial"
 MODEM_NS_CONF="$LOG/modem_zmqtest.netns.conf"
 

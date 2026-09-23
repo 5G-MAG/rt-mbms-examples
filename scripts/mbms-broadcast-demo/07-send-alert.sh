@@ -1,17 +1,18 @@
 #!/bin/bash
-# Sends an ETWS/CMAS emergency alert through the portal and waits until the receiving
-# modem reports it, so the script says whether the alert actually arrived over the air
-# rather than only that the portal accepted it.
+# Sends an ETWS/CMAS emergency alert through the Cell Broadcast Centre (rt-pws-cbc) and
+# waits until the receiving modem reports it, so the script says whether the alert actually
+# arrived over the air rather than only that the CBC accepted it.
 #
 # The alert path is independent of the content path: it runs over the cell's own warning
 # signalling (SIB10/11/12 via the MME's SBc-AP bridge), not over the MBMS bearer, so it
-# works whether or not a content session is active.
+# works whether or not a content session is active, and it does not involve the media
+# provisioning portal at all.
 #
 #   ./07-send-alert.sh [alert-type] [headline] [description]
 #   ./07-send-alert.sh --cancel                  send a Stop Warning for the active alert
-#   ./07-send-alert.sh --list                    print the alert types the portal accepts
+#   ./07-send-alert.sh --list                    print the alert types the CBC accepts
 #
-# Alert types come from rt-mbms-application-provider/lib/cap.js.
+# Alert types come from rt-pws-cbc/lib/cap.js, and --list asks the running CBC for them.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source env.sh
@@ -20,21 +21,29 @@ ensure_dirs
 
 require_cmd curl
 require_cmd python3
-portal_creds
+cbc_creds
 
+# Kept in step with rt-pws-cbc/lib/cap.js. --list prefers the running service's own answer
+# (GET /api/alert-types) and falls back to this copy when the CBC is not up yet.
 ALERT_TYPES=(etws_earthquake etws_tsunami etws_earthquake_tsunami etws_test etws_other
              cmas_presidential cmas_extreme cmas_severe cmas_amber)
 
 if [[ "${1:-}" == "--list" ]]; then
-    printf '%s\n' "${ALERT_TYPES[@]}"
+    live=$(cbc_api GET "/api/alert-types" 2>/dev/null \
+           | python3 -c 'import json,sys
+try:
+    print("\n".join(json.load(sys.stdin)["alertTypes"]))
+except Exception:
+    pass' 2>/dev/null)
+    if [[ -n "$live" ]]; then printf '%s\n' "$live"; else printf '%s\n' "${ALERT_TYPES[@]}"; fi
     exit 0
 fi
 
 if [[ "${1:-}" == "--cancel" ]]; then
     log "sending Stop Warning (cancel)"
-    resp=$(portal_api POST "/api/alerts/cancel" '{}')
+    resp=$(cbc_api POST "/api/alerts/cancel" '{}')
     grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<<"$resp" || die "cancel failed: ${resp:-no response}"
-    log "cancel accepted by the portal"
+    log "cancel accepted by the CBC"
     exit 0
 fi
 
@@ -51,11 +60,11 @@ print(json.dumps({"alertType": sys.argv[1], "headline": sys.argv[2], "descriptio
 PY
 )
 
-log "sending $ALERT_TYPE via $PORTAL_URL"
-resp=$(portal_api POST "/api/alerts" "$body")
+log "sending $ALERT_TYPE via $CBC_URL"
+resp=$(cbc_api POST "/api/alerts" "$body")
 grep -q '"ok"[[:space:]]*:[[:space:]]*true' <<<"$resp" \
-    || die "the portal rejected the alert: ${resp:-no response}"
-log "portal accepted the alert"
+    || die "the CBC rejected the alert: ${resp:-no response}"
+log "CBC accepted the alert"
 
 # Which of the modem's three warning lists the alert lands in depends on its type: ETWS
 # primary carries the warning type only, ETWS secondary the message, and PWS/CMAS its own.
@@ -91,7 +100,7 @@ if [[ -n "$found" ]]; then
     log "alert received by the modem: $found"
     log "  see it in the application UI: http://$RX_ADDR:$APP_PORT/cellbroadcast"
 else
-    log "WARNING: the portal accepted the alert but the modem reported none within 90s."
+    log "WARNING: the CBC accepted the alert but the modem reported none within 90s."
     log "  Check $STACK_LOG_DIR/Modem.log and $LOG_DIR/EPC.log (the SBc-AP bridge is on :$SBC_BRIDGE_PORT),"
     log "  and confirm the modem is still synced: curl -s http://$RX_ADDR:$MODEM_API_PORT/modem-api/sib_info"
     exit 1

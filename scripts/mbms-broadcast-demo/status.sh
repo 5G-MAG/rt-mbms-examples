@@ -24,7 +24,9 @@ check_tcp "eNB control"     127.0.0.1 "$ENB_CTRL_PORT"
 check_tcp "MBMS-GW control" 127.0.0.1 "$GW_CTRL_PORT"
 check_tcp "BM-SC xMB-C"     127.0.0.1 "$XMB_C_PORT"
 check_tcp "portal"          "$PORTAL_HOST" "$PORTAL_PORT"
+check_tcp "CBC (alerts)"    "$CBC_HOST" "$CBC_PORT"
 print_portal_credentials 2>/dev/null || true
+print_cbc_credentials 2>/dev/null || true
 
 echo "Local origin:"
 check_tcp "media server" "$MEDIA_HOST" "$MEDIA_PORT"

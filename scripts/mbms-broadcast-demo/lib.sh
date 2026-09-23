@@ -64,10 +64,14 @@ netns_exists() {
     sudo -n ip netns list 2>/dev/null | awk '{print $1}' | grep -qx "$NETNS"
 }
 
-# Portal host/port/credentials, read from the portal's own .env so this demo and the
-# portal cannot disagree about the token. Sets PORTAL_URL and PORTAL_AUTH.
-portal_creds() {
-    [[ -f "$PORTAL_ENV" ]] || die "portal .env not found at $PORTAL_ENV (the portal refuses to start without AUTH_TOKEN; see rt-mbms-application-provider/README)"
+# Reads HOST/PORT/AUTH_USER/AUTH_TOKEN out of a service's own .env, so this demo and the
+# service can never disagree about the token. Both services that need this refuse to start
+# without AUTH_TOKEN, which is why an empty one is fatal here rather than a warning.
+#   _read_service_env <env-file> <default-host> <default-port> <what-it-is>
+# Sets _SVC_URL, _SVC_AUTH, _SVC_USER, _SVC_TOKEN.
+_read_service_env() {
+    local env_file="$1" default_host="$2" default_port="$3" what="$4"
+    [[ -f "$env_file" ]] || die "$what .env not found at $env_file (it refuses to start without AUTH_TOKEN; see that repository's README)"
     local host port user token line k v
     while IFS= read -r line; do
         [[ "$line" =~ ^[[:space:]]*([A-Z0-9_]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
@@ -79,23 +83,46 @@ portal_creds() {
             AUTH_USER) user="$v" ;;
             AUTH_TOKEN) token="$v" ;;
         esac
-    done < "$PORTAL_ENV"
-    PORTAL_URL="http://${host:-$PORTAL_HOST}:${port:-$PORTAL_PORT}"
-    PORTAL_AUTH="${user:-admin}:${token}"
-    PORTAL_USER="${user:-admin}"
-    PORTAL_TOKEN="$token"
-    [[ -n "$token" ]] || die "AUTH_TOKEN is empty in $PORTAL_ENV"
+    done < "$env_file"
+    [[ -n "$token" ]] || die "AUTH_TOKEN is empty in $env_file"
+    _SVC_URL="http://${host:-$default_host}:${port:-$default_port}"
+    _SVC_USER="${user:-admin}"
+    _SVC_TOKEN="$token"
+    _SVC_AUTH="${user:-admin}:${token}"
+}
+
+# Curl against a service's API, with the credentials already read.
+#   _service_api <base-url> <user:token> <method> <path> [json-body]
+_service_api() {
+    local url="$1" auth="$2" method="$3" path="$4" body="${5:-}"
+    if [[ -n "$body" ]]; then
+        curl -s -m 90 -u "$auth" -X "$method" -H 'Content-Type: application/json' \
+             --data "$body" "$url$path"
+    else
+        curl -s -m 90 -u "$auth" -X "$method" "$url$path"
+    fi
+}
+
+# Portal (rt-mbms-application-provider): media service provisioning. Sets PORTAL_URL/PORTAL_AUTH.
+portal_creds() {
+    _read_service_env "$PORTAL_ENV" "$PORTAL_HOST" "$PORTAL_PORT" "portal"
+    PORTAL_URL="$_SVC_URL"; PORTAL_AUTH="$_SVC_AUTH"; PORTAL_USER="$_SVC_USER"; PORTAL_TOKEN="$_SVC_TOKEN"
 }
 
 # Curl against the portal API. portal_creds must have run.
 portal_api() {
-    local method="$1" path="$2" body="${3:-}"
-    if [[ -n "$body" ]]; then
-        curl -s -m 90 -u "$PORTAL_AUTH" -X "$method" -H 'Content-Type: application/json' \
-             --data "$body" "$PORTAL_URL$path"
-    else
-        curl -s -m 90 -u "$PORTAL_AUTH" -X "$method" "$PORTAL_URL$path"
-    fi
+    _service_api "$PORTAL_URL" "$PORTAL_AUTH" "$@"
+}
+
+# Cell Broadcast Centre (rt-pws-cbc): emergency alerts. Sets CBC_URL/CBC_AUTH.
+cbc_creds() {
+    _read_service_env "$CBC_ENV" "$CBC_HOST" "$CBC_PORT" "Cell Broadcast Centre"
+    CBC_URL="$_SVC_URL"; CBC_AUTH="$_SVC_AUTH"; CBC_USER="$_SVC_USER"; CBC_TOKEN="$_SVC_TOKEN"
+}
+
+# Curl against the CBC API. cbc_creds must have run.
+cbc_api() {
+    _service_api "$CBC_URL" "$CBC_AUTH" "$@"
 }
 
 # The manifest this demo distributes, relative to the origin's document root.
@@ -205,6 +232,18 @@ for c in json.load(open(sys.argv[1]))["channels"]:
 # These are lab credentials on a loopback-bound service, and a reader who cannot open the
 # portal cannot drive the demo. Set SHOW_PORTAL_CREDENTIALS=0 to print the location of the
 # secret instead of the secret, e.g. when the terminal is on a projector or in a recording.
+# Same reasoning as print_portal_credentials: a reader who cannot open the CBC cannot send
+# an alert. Honours SHOW_PORTAL_CREDENTIALS so one switch covers both consoles.
+print_cbc_credentials() {
+    [[ -f "$CBC_ENV" ]] || return 0
+    cbc_creds
+    if [[ "${SHOW_PORTAL_CREDENTIALS:-1}" == "1" ]]; then
+        echo "  CBC login       : $CBC_USER / $CBC_TOKEN"
+    else
+        echo "  CBC login       : $CBC_USER / AUTH_TOKEN in $CBC_ENV"
+    fi
+}
+
 print_portal_credentials() {
     portal_creds
     local app_env="$APP_DIR/.env" app_user app_token

@@ -33,6 +33,7 @@ for pid in $(pgrep -f "ffmpeg .*$MEDIA_ROOT" 2>/dev/null || true); do
     kill -TERM "$pid" 2>/dev/null || true
 done
 kill_pidfile media-server
+kill_pidfile cbc
 
 if netns_exists; then
     log "tearing down the receive chain and netns $NETNS"
