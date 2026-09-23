@@ -2,6 +2,16 @@
 # The whole MBMS Broadcast demo, in dependency order: transmit side, local live origin,
 # receive side, then the xMB service that puts the content on air.
 #
+#   ./start-all.sh                  broadcast only
+#   ./start-all.sh --with-alerts    broadcast, plus the emergency-alert path (rt-pws-cbc)
+#   DEMO_ALERTS=1 ./start-all.sh    the same, set in the environment or in local.env
+#
+# Emergency alerts are optional because they share nothing with content delivery: a warning
+# travels over the cell's own system information, not over an MBMS bearer, and needs no xMB
+# session, origin or encoder. They can also be started on their own later with
+# ./08-start-alerts.sh, and stopped again with ./stop-alerts.sh, without disturbing a running
+# demo.
+#
 # Safe to run twice: it stops anything this demo previously started first. The transmit
 # side is restarted from scratch rather than reused, because a session left active in a
 # previous run makes the next activation fail in a way only a restart clears (see the
@@ -11,6 +21,15 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 source env.sh
 source lib.sh
 ensure_dirs
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --with-alerts) DEMO_ALERTS=1; shift ;;
+        --no-alerts)   DEMO_ALERTS=0; shift ;;
+        -h|--help)     sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *)             die "unknown option: $1 (try --help)" ;;
+    esac
+done
 
 require_cmd node
 require_cmd ffmpeg
@@ -43,6 +62,11 @@ while IFS=$'\t' read -r ch_id ch_name ch_stream ch_tmgi ch_tsi ch_addr ch_port; 
         ./06-provision-live-service.sh
 done < <(onair_rows)
 
+if [[ "${DEMO_ALERTS:-0}" == "1" ]]; then
+    log "=== emergency-alert path (Cell Broadcast Centre) ==="
+    ./08-start-alerts.sh
+fi
+
 # For the summary below: PORTAL_URL is set by portal_creds, and the stage scripts each ran
 # in their own shell.
 portal_creds
@@ -54,7 +78,6 @@ MBMS Broadcast demo is up.
   player UI    : http://$RX_ADDR:$APP_PORT/application   (the default player matches LIVE_FORMAT=$LIVE_FORMAT)
   cell broadcast: http://$RX_ADDR:$APP_PORT/cellbroadcast
   portal       : $PORTAL_URL                         (xMB and RAN tabs)
-  alerts (CBC) : ${CBC_URL:-http://$CBC_HOST:$CBC_PORT}
   origin       : http://$MEDIA_HOST:$MEDIA_PORT/$(live_presentation_path)
   modem API    : http://$RX_ADDR:$MODEM_API_PORT/modem-api/
   client API   : http://$RX_ADDR:$CLIENT_API_PORT/client-api/
@@ -68,7 +91,7 @@ MBMS Broadcast demo is up.
 $(print_portal_credentials)
 
   ./status.sh                 what is up, and what the radio and the client report
-  ./07-send-alert.sh          send an ETWS/CMAS alert and confirm the modem receives it
+$(alert_path_summary)
   ./stop-all.sh               stop everything this demo started
 
 Logs: this demo's own in $LOG_DIR, the stack's own in $STACK_LOG_DIR.

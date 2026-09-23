@@ -24,9 +24,19 @@ check_tcp "eNB control"     127.0.0.1 "$ENB_CTRL_PORT"
 check_tcp "MBMS-GW control" 127.0.0.1 "$GW_CTRL_PORT"
 check_tcp "BM-SC xMB-C"     127.0.0.1 "$XMB_C_PORT"
 check_tcp "portal"          "$PORTAL_HOST" "$PORTAL_PORT"
-check_tcp "CBC (alerts)"    "$CBC_HOST" "$CBC_PORT"
+# The alert path is started separately (./08-start-alerts.sh), so "down" here is a normal
+# state for a broadcast-only run rather than a fault.
+if curl -s -m 2 -o /dev/null "http://$CBC_HOST:$CBC_PORT/api/health" 2>/dev/null; then
+    check_tcp "CBC (alerts)"    "$CBC_HOST" "$CBC_PORT"
+    _cbc_up=1
+else
+    echo "  [--]   CBC (alerts) not started    ./08-start-alerts.sh  (separate path, optional)"
+    _cbc_up=0
+fi
 print_portal_credentials 2>/dev/null || true
-print_cbc_credentials 2>/dev/null || true
+# Only when it is actually up: a login for a service that is not running reads as though
+# something is wrong with it.
+[[ "$_cbc_up" == "1" ]] && { print_cbc_credentials 2>/dev/null || true; }
 
 echo "Local origin:"
 check_tcp "media server" "$MEDIA_HOST" "$MEDIA_PORT"

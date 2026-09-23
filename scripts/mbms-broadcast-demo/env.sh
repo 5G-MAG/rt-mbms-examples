@@ -102,6 +102,12 @@ PORTAL_PORT="${PORTAL_PORT:-8080}"
 
 # rt-pws-cbc (the Cell Broadcast Centre), same arrangement: it refuses to start without
 # AUTH_TOKEN, and its own .env is the single source of that token.
+# Whether ./start-all.sh also brings up the emergency-alert path. Off by default: a warning
+# needs none of the content machinery, so a broadcast demo should not require the extra
+# repository, and an operator should choose to put alerting on the air rather than have it
+# appear. ./start-all.sh --with-alerts sets it for one run; local.env can set it permanently.
+DEMO_ALERTS="${DEMO_ALERTS:-0}"
+
 CBC_ENV="${CBC_ENV:-$CBC_DIR/.env}"
 CBC_HOST="${CBC_HOST:-127.0.0.1}"
 CBC_PORT="${CBC_PORT:-8081}"

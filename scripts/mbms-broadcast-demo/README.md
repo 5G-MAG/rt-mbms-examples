@@ -25,7 +25,9 @@ one copy of the component start order, the sudo handling and the network namespa
 | `./start-all.sh` | Everything: transmit side, origin, receive side, then the xMB service, activated |
 | `./status.sh` | What is up, plus what the radio and the provisioned session report |
 | `./stop-all.sh` | Stops everything this demo started, encoder and namespace included |
+| `./08-start-alerts.sh` | Starts the Cell Broadcast Centre. Separate from the broadcast demo; needs only the transmit side |
 | `./07-send-alert.sh` | Sends an ETWS/CMAS alert and waits for the modem to report it |
+| `./stop-alerts.sh` | Stops the Cell Broadcast Centre, leaving the broadcast demo running |
 
 `start-all.sh` clears anything already running first, so it is safe to run twice. Each numbered
 script can also be run on its own (`./03-start-media-server.sh` to restart just the origin, say).
@@ -140,8 +142,8 @@ no bridge is needed.
   cloned next to `rt-mbms/` rather than inside it, because Public Warning System alerts are not an
   MBMS function: they reach handsets over the cell's own system information, with no MBMS bearer
   and no content session involved. `CBC_DIR` defaults to `$REPOS_ROOT/rt-pws-cbc`; point it
-  elsewhere if you keep it somewhere else. Skip this and everything except `./07-send-alert.sh`
-  still works.
+  elsewhere if you keep it somewhere else. Skip it and the broadcast demo is unaffected: nothing
+  in `./start-all.sh` touches the alert path.
 - **The portal's `.env`**, with `AUTH_TOKEN` set. `rt-mbms-application-provider` refuses to start
   without it. `start-all.sh` and `status.sh` read it and print the login, so the value belongs
   there and nowhere else; do not copy it into a tracked file.
@@ -216,10 +218,11 @@ This runs, in order:
 
 | Script | What it does |
 |---|---|
-| `01-start-transmit.sh` | EPC, eNB, MBMS-GW, BM-SC and the portal, via the tutorial's `transmit.sh`, then the Cell Broadcast Centre, then waits for each control port |
+| `01-start-transmit.sh` | EPC, eNB, MBMS-GW, BM-SC and the portal, via the tutorial's `transmit.sh`, then waits for each control port |
 | `03-start-media-server.sh` | The local origin (`media-server.js`) and the looping encoder (`live-encoder.sh`), then waits until the presentation is genuinely playable |
 | `05-start-client-and-app.sh` | Modem, client and application inside netns `mbms-rx`, via the tutorial's `receive-netns.sh`, then waits for both REST APIs |
 | `06-provision-live-service.sh` | Creates the xMB service and its Application/Pull session and activates it, which is what puts the content on air |
+| `08-start-alerts.sh` | Not part of `start-all.sh`: starts the Cell Broadcast Centre, the only thing the alert path adds |
 | `07-send-alert.sh` | Not part of `start-all.sh`: sends an ETWS/CMAS alert and waits for the modem to report it |
 
 The numbering is rt-mbs-examples', so the same stage carries the same number and the same name in
@@ -300,6 +303,36 @@ problem needs more detail than the checks above give:
 diagnostics on; the two config levels need a transmit-side restart (`./start-all.sh`).
 
 ## Emergency alerts
+
+**They are a separate demo, with their own entry point.** A Public Warning System alert reaches
+handsets over the cell's own system information (SIB10/11/12), signalled from the MME over SBc-AP.
+It never touches an MBMS bearer, an xMB session, the content origin or the encoders. So the two
+paths start independently, and either runs without the other:
+
+```bash
+# broadcast only -- no Cell Broadcast Centre is started
+./start-all.sh
+
+# alerts only -- transmit side, then the alert path. No origin, no encoders, no session.
+./01-start-transmit.sh
+./08-start-alerts.sh
+./05-start-client-and-app.sh      # only if you want the modem to confirm arrival
+./07-send-alert.sh etws_test
+
+# both: the broadcast demo, then add the alert path on top at any time
+./start-all.sh
+./08-start-alerts.sh
+./07-send-alert.sh etws_test
+./stop-alerts.sh                  # take the alert path down again, demo keeps running
+```
+
+`./07-send-alert.sh` tells you to run `./08-start-alerts.sh` if the CBC is not up, rather than
+failing on the request. `./status.sh` shows the alert path as `[--] not started` when it is
+absent, because for a broadcast-only run that is the correct state and not a fault.
+
+The modem only matters for *confirming* an alert: `./07-send-alert.sh` waits for it to report the
+warning. Without it the alert is still transmitted, and the script says that nothing observed it.
+
 
 Alerts are issued by `rt-pws-cbc`, a Cell Broadcast Centre, and not by the content portal: warning
 origination and media provisioning are separate jobs, done by separate organisations. They do not

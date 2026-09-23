@@ -8,6 +8,10 @@
 # works whether or not a content session is active, and it does not involve the media
 # provisioning portal at all.
 #
+# Needs the alert path started first: ./08-start-alerts.sh. That is separate from the broadcast
+# demo on purpose -- a warning travels over the cell's own system information, not over an MBMS
+# bearer, so neither path needs the other.
+#
 #   ./07-send-alert.sh [alert-type] [headline] [description]
 #   ./07-send-alert.sh --cancel                  send a Stop Warning for the active alert
 #   ./07-send-alert.sh --list                    print the alert types the CBC accepts
@@ -22,6 +26,14 @@ ensure_dirs
 require_cmd curl
 require_cmd python3
 cbc_creds
+
+# The alert path has its own entry point, so the CBC may legitimately not be running even with
+# the whole broadcast demo up. Say which script starts it rather than failing on the POST below.
+if ! curl -s -m 3 -o /dev/null "$CBC_URL/api/health"; then
+    die "no Cell Broadcast Centre answering on $CBC_URL. Start the alert path first:
+  ./08-start-alerts.sh
+  (it needs the transmit side up: ./01-start-transmit.sh)"
+fi
 
 # Kept in step with rt-pws-cbc/lib/cap.js. --list prefers the running service's own answer
 # (GET /api/alert-types) and falls back to this copy when the CBC is not up yet.

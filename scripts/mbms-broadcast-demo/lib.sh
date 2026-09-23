@@ -125,6 +125,19 @@ cbc_api() {
     _service_api "$CBC_URL" "$CBC_AUTH" "$@"
 }
 
+# One block of the start-all summary, phrased for whichever way the run was started: the alert
+# path is optional, so the reader needs to know whether it is up and what to do either way.
+alert_path_summary() {
+    if [[ "${DEMO_ALERTS:-0}" == "1" ]]; then
+        echo "  ./07-send-alert.sh          send an ETWS/CMAS alert and confirm the modem receives it"
+        echo "  ./stop-alerts.sh            stop the alert path, leaving this demo running"
+    else
+        echo "  ./08-start-alerts.sh        add the emergency-alert path (not started: this run is broadcast only),"
+        echo "                              then ./07-send-alert.sh to send one. Or start it with the demo next"
+        echo "                              time: ./start-all.sh --with-alerts"
+    fi
+}
+
 # Where the receiving client republishes what it got over the air, which is what the player in
 # the application UI has to be pointed at. The client serves its reception cache on its own API
 # port, under a directory named after the xMB session (the BM-SC names the objects that way), so
