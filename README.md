@@ -1,22 +1,22 @@
-<h1 align="center">MBMS Examples</h1>
+<p align="center">
+  <img src=".github/banner.svg" width="100%" alt="Reference Tools · 5G Broadcast - TV and Radio Services: MBMS Tools and Examples">
+</p>
 
 <p align="center">
-  Runnable end-to-end demos and test tooling for the LTE-based 5G Terrestrial Broadcast
-  (FeMBMS / MBMS) reference tools: a full Broadcast deployment from EPC to UE, with content
-  flowing.
+  Runnable end-to-end demos and test tooling for the LTE-based 5G Terrestrial Broadcast reference tools: a full deployment from EPC to UE, with content flowing.
 </p>
 
 <p align="center">
   <img alt="Status: under development"
     src="https://img.shields.io/badge/Status-Under_Development-yellow">
   <a href="https://github.com/5G-MAG/rt-mbms-examples/releases"><img alt="Version"
-    src="https://img.shields.io/github/v/tag/5G-MAG/rt-mbms-examples?label=Version&sort=semver"></a>
-  <a href="License"><img alt="5G-MAG Public License v1.0"
+    src="https://img.shields.io/github/v/release/5G-MAG/rt-mbms-examples?label=Version&sort=semver"></a>
+  <a href="LICENSE"><img alt="License: 5G-MAG Public License v1.0"
     src="https://img.shields.io/badge/License-5G--MAG%20PL%20v1.0-blue"></a>
 </p>
 
 <p align="center">
-  <a href="https://www.5g-mag.com/reference-tools">Project page</a> &nbsp;&middot;&nbsp;
+  <a href="https://www.5g-mag.com/reference-tools/5g-broadcast">Project page</a> &nbsp;&middot;&nbsp;
   <a href="https://github.com/5G-MAG/rt-mbms-examples/issues">Issues</a> &nbsp;&middot;&nbsp;
   <a href="https://www.5g-mag.com/contributing">Contributing</a>
 </p>
@@ -27,11 +27,16 @@
 
 |  |  |
 |---|---|
-| **Provides** | An end-to-end MBMS Broadcast demo, a local live content origin, an emergency-alert path and the older tmux tutorial |
+| **Implements** | Nothing directly. It starts and provisions the components that do, and its demos exercise TS 26.346 delivery and TS 36.300 clause 15 multi-PMCH carriage. |
 | **Role** | Integration: it starts and provisions the other components, and builds none of them |
-| **Built with** | Bash, Node.js and Python |
-| **Works with** | [rt-mbms-tx](https://github.com/5G-MAG/rt-mbms-tx), [rt-mbms-gw](https://github.com/5G-MAG/rt-mbms-gw), [rt-mbms-bmsc](https://github.com/5G-MAG/rt-mbms-bmsc), [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem), [rt-mbms-client](https://github.com/5G-MAG/rt-mbms-client), [rt-mbms-application](https://github.com/5G-MAG/rt-mbms-application), [rt-mbms-application-provider](https://github.com/5G-MAG/rt-mbms-application-provider) and [rt-libflute](https://github.com/5G-MAG/rt-libflute) |
-| **Part of** | [5G-MAG Reference Tools](https://www.5g-mag.com/reference-tools) |
+| **Works with** | [rt-mbms-tx](https://github.com/5G-MAG/rt-mbms-tx), [rt-mbms-gw](https://github.com/5G-MAG/rt-mbms-gw), [rt-mbms-bmsc](https://github.com/5G-MAG/rt-mbms-bmsc), [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem), [rt-mbms-client](https://github.com/5G-MAG/rt-mbms-client), [rt-mbms-application](https://github.com/5G-MAG/rt-mbms-application), [rt-mbms-application-provider](https://github.com/5G-MAG/rt-mbms-application-provider) and [rt-pws-cbc](https://github.com/5G-MAG/rt-pws-cbc) |
+| **Part of** | [5G Broadcast - TV and Radio Services](https://www.5g-mag.com/reference-tools/5g-broadcast) |
+
+## Specification
+
+Built against the documents named above. Clause-by-clause coverage, and what is still absent, is
+recorded on the project page rather than here:
+<https://www.5g-mag.com/reference-tools/5g-broadcast>
 
 ## Introduction
 
@@ -198,6 +203,19 @@ walkthrough across all ten repos. It needs one small piece that isn't shipped an
 SoapySDR `zmqrx` bridge device plugin bridging the eNB's ZeroMQ transmit output into the modem's
 usual `SoapySDR::Device::make()` radio path -- both docs above include the full working source.
 
+## Configuration
+
+Each demo carries its own configuration and says what it reads. For the broadcast demo that is
+`scripts/mbms-broadcast-demo/env.sh`, every value overridable from a gitignored `local.env`, and
+the component configuration in `scripts/tmux/mbms-broadcast-tutorial/conf/`.
+
+## Development
+
+Branches are `main` and `development`. `scripts/check-build-from-clean.sh` clones every component
+from 5G-MAG into a stock `ubuntu:26.04` container and builds it with only the packages the demo
+README documents, which is how a missing package or a broken build instruction is caught before a
+reader hits it.
+
 ## Contributing
 
 Contributions are welcome. How to raise an issue, fork the repository and open a pull request, and
@@ -206,4 +224,4 @@ the Contributor License Agreement required before code can be merged, are descri
 
 ## License
 
-See [License](License).
+Distributed under the 5G-MAG Public License v1.0. See [LICENSE](LICENSE).
