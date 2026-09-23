@@ -1,0 +1,271 @@
+sib1 =
+{
+    // SIB1-MBMS (TS 36.331 §6.3.7) — not the same as regular LTE SIB1.
+    // PLMN, TAC and cell identity are taken from enb.conf / rr.conf automatically.
+    //
+    // q_rx_lev_min: minimum received signal level for cell selection (Q-RxLevMin).
+    //   Range: -70..-22 (dBm, units of 2 dB per step: -70 = -140 dBm, -22 = -44 dBm).
+    //   Default: -60 (= -120 dBm), appropriate for a broadcast-only dedicated cell.
+    //   For MBMS-dedicated cells UEs tune to receive services, not for unicast camping,
+    //   so a very permissive value (-70) is also reasonable.
+    q_rx_lev_min = -60;
+    si_window_length = 20;
+    sched_info =
+    (
+        {
+            si_periodicity = 64;
+
+            // MBMS SIB numbers only: 10=ETWS-primary, 11=ETWS-secondary,
+            // 12=CMAS/warning-msg, 13=MBMS-session, 15=MBMS-SAI, 16=UTC-time
+            // SIB13 is always embedded in SIB1-MBMS; list here causes a standalone SI message.
+            si_mapping_info = [13, 15];
+        },
+        {
+            si_periodicity = 256;
+            si_mapping_info = [16];
+        }
+    );
+    system_info_value_tag = 0;
+
+    // non_mbsfn_sf_cfg: optional, omit for a fully-dedicated broadcast carrier
+    // (all subframes MBSFN). Only needed for hybrid carriers that mix unicast
+    // PDSCH on some subframes with MBSFN on others.
+    //
+    // radio_frame_alloc_period: rf4 rf8 rf16 rf32 rf64 rf128 rf512
+    // radio_frame_alloc_offset: 0..radio_frame_alloc_period-1
+    // subframe_allocation: 9-bit mask — bit 8=sf0, bit 7=sf1, ..., bit 0=sf8
+    //   1 = non-MBSFN, 0 = MBSFN.  Example: 56 (0b000111000) = sf3,sf4,sf5 non-MBSFN
+    //
+    //non_mbsfn_sf_cfg =
+    //{
+    //    radio_frame_alloc_period = 32;
+    //    radio_frame_alloc_offset = 0;
+    //    subframe_allocation = 56;
+    //};
+};
+
+sib2 =
+{
+    rr_config_common_sib =
+    {
+        rach_cnfg =
+        {
+            num_ra_preambles = 52;
+            preamble_init_rx_target_pwr = -104;
+            pwr_ramping_step = 6;  // in dB
+            preamble_trans_max = 10;
+            ra_resp_win_size = 10;  // in ms
+            mac_con_res_timer = 64; // in ms
+            max_harq_msg3_tx = 4;
+        };
+        bcch_cnfg =
+        {
+            modification_period_coeff = 16; // in ms
+        };
+        pcch_cnfg =
+        {
+            default_paging_cycle = 32; // in rf
+            nB = "1";
+        };
+        prach_cnfg =
+        {
+            root_sequence_index = 128;
+            prach_cnfg_info =
+            {
+                high_speed_flag = false;
+                prach_config_index = 3;
+                prach_freq_offset = 2;
+                zero_correlation_zone_config = 5;
+            };
+        };
+        pdsch_cnfg =
+        {
+            /* Warning: Currently disabled and forced to p_b=1 for TM2/3/4 and p_b=0 for TM1
+             */
+            p_b = 1;
+            rs_power = 0;
+        };
+        pusch_cnfg =
+        {
+            n_sb = 1;
+            hopping_mode = "inter-subframe";
+            pusch_hopping_offset = 2;
+            enable_64_qam = false; // 64QAM PUSCH is not currently enabled
+            ul_rs =
+            {
+                cyclic_shift = 0;
+                group_assignment_pusch = 0;
+                group_hopping_enabled = false;
+                sequence_hopping_enabled = false;
+            };
+        };
+        pucch_cnfg =
+        {
+            delta_pucch_shift = 2;
+            n_rb_cqi = 2;
+            n_cs_an = 0;
+            n1_pucch_an = 12;
+        };
+        ul_pwr_ctrl =
+        {
+            p0_nominal_pusch = -85;
+            alpha = 0.7;
+            p0_nominal_pucch = -107;
+            delta_flist_pucch =
+            {
+                format_1  = 0;
+                format_1b = 3;
+                format_2  = 1;
+                format_2a = 2;
+                format_2b = 2;
+            };
+            delta_preamble_msg3 = 6;
+        };
+        ul_cp_length = "len1";
+    };
+
+    ue_timers_and_constants =
+    {
+        t300 = 2000; // in ms
+        t301 = 100;  // in ms
+        t310 = 200; // in ms
+        n310 = 1;
+        t311 = 10000; // in ms
+        n311 = 1;
+    };
+
+    freqInfo =
+    {
+        ul_carrier_freq_present = true;
+        ul_bw_present = true;
+        additional_spectrum_emission = 1;
+    };
+
+    mbsfnSubframeConfigList =
+    {
+        radioframeAllocationPeriod = 1;
+        subframeAllocationNumFrames = 1;
+        radioframeAllocationOffset = 0;
+        subframeAllocation = 63;
+    };
+
+    time_alignment_timer = "INFINITY"; // use "sf500", "sf750", etc.
+};
+
+#####################################################################
+# sib10 — ETWS primary notification (TS 36.331 s6.3.1, TS 23.041)
+#
+# Only include 10 in sib1::sched_info::si_mapping_info during an ETWS event.
+# Transmit at a short periodicity (e.g. rf16) while the warning is active.
+#
+# message_identifier: 16-bit ETWS message ID (hex)
+#   0x1100-0x1101  earthquake warning
+#   0x1102-0x1103  tsunami warning
+#   0x1104         earthquake+tsunami
+#   0x1105         test
+# serial_number: 16-bit (hex) — upper 2 bits geo-scope, lower 14 message code+update
+# warning_type: 16-bit (hex) per TS 23.041 s9.3.24
+#   byte 1 bits 8..5: warning type value
+#     0 = earthquake, 1 = tsunami, 2 = EQ+tsunami, 3 = test, 4 = other
+#   byte 1 bit  4:    emergency user alert (1 = alert device)
+#   byte 1 bit  3:    popup indicator (1 = popup)
+#   byte 2:           reserved (0x00)
+#   Example: 0x0B00 = tsunami (value=1) + alert + popup
+#####################################################################
+#sib10 =
+#{
+#    message_identifier = 0x1102;   // ETWS tsunami
+#    serial_number      = 0x3000;   // geo-scope=cell, update=0
+#    warning_type       = 0x0B00;   // tsunami + user alert + popup
+#};
+
+#####################################################################
+# sib11 — ETWS secondary notification text (TS 36.331 s6.3.1)
+#
+# Carries a longer free-text warning message (CBS-encoded, same as SIB12).
+# Only needed when a full-text secondary notification is required alongside SIB10.
+# Include 11 in si_mapping_info while the alert is active.
+#
+# Encode the message text with: python3 tools/encode_sib12_alert.py "Your text"
+# (outputs a ready-to-paste block — field names differ slightly: use warning_msg_segment
+#  and message_identifier/serial_number without the _r9 suffix)
+#####################################################################
+#sib11 =
+#{
+#    message_identifier       = 0x1102;
+#    serial_number            = 0x3000;
+#    data_coding_scheme       = 0x48;          // GSM 7-bit default alphabet (TS 23.038)
+#    warning_msg_segment_type = "lastSegment";
+#    warning_msg_segment_num  = 0;
+#    warning_msg_segment      = "C8329BFD06";  // "Hello" in GSM 7-bit
+#};
+
+sib13 =
+{
+    mbsfn_notification_config =
+    {
+        mbsfn_notification_repetition_coeff = "n2";
+        mbsfn_notification_offset = 0;
+        mbsfn_notification_sf_index = 1;
+    };
+    mbsfn_area_info_list_size = 1;
+    mbsfn_area_info_list =
+    {
+        non_mbsfn_region_length = "s1";
+        mcch_repetition_period = "rf64";
+        mcch_modification_period = "rf512";
+        signalling_mcs = "n2";
+        mbsfn_area_id = 1;
+        notification_indicator = 0;
+        mcch_offset = 0;
+        sf_alloc_info = 32;
+        # Restored to baseline (khz1dot25) -- 15kHz (field omitted) and
+        # 7.5kHz ("kHz7dot5") both PASSED (BLER 0.0) in the SIB13 test
+        # plan's SCS sweep. 2.5kHz needs the separate [embms]
+        # subcarrier_spacing override in enb_baseline.conf instead (not
+        # expressible via this base r9/r14 field), so this field goes back
+        # to its normal baseline value for that test.
+        subcarrier_spacing = "khz1dot25";
+    };
+};
+
+#####################################################################
+# sib15 — MBMS Service Area Identity list (TS 36.331 s6.3.1, Rel-11)
+#
+# mbms_sai_intra_freq: list of 20-bit MBMS Service Area Identities (0..65535)
+# served on this carrier frequency. Receivers use this to determine whether
+# they are in a coverage area for a given MBMS service.
+# Include 15 in sib1::sched_info::si_mapping_info.
+#####################################################################
+sib15 =
+{
+    mbms_sai_intra_freq = [1];  // SAI=1; update to match your MBMS service configuration
+
+    // carrier_type: tells UEs what kind of MBMS carrier this is (Rel-14, TS 36.331 §6.3.1)
+    //   fembms_ded   — FeMBMS dedicated carrier (all subframes MBSFN, 5G Broadcast)
+    //   fembms_mixed — FeMBMS mixed carrier (some MBSFN, some unicast)
+    //   mbms         — legacy MBMS (pre-Rel-14)
+    carrier_type = "fembms_ded";
+};
+
+#####################################################################
+# sib16 — GPS/UTC time (TS 36.331 s6.3.1, Rel-11)
+#
+# time_info_utc: seconds since 00:00:00 UTC on 1 January 1900
+#   To compute: python3 -c "import datetime; \
+#     epoch=datetime.datetime(1900,1,1); \
+#     now=datetime.datetime.utcnow(); \
+#     print(int((now-epoch).total_seconds()))"
+# leap_seconds: current TAI-UTC offset in seconds (37 as of 2024)
+# local_time_offset: offset from UTC in units of 15 minutes (e.g. 8 = UTC+2h)
+# Include 16 in sib1::sched_info::si_mapping_info.
+#####################################################################
+sib16 =
+{
+    time_info =
+    {
+        time_info_utc    = 3989280000L;  // approx 2026-06-28 — update before deployment
+        leap_seconds     = 37;           // TAI-UTC as of 2024; check IERS for current value
+        local_time_offset = 4;           // UTC+1h (4 units of 15 min); adjust for your timezone
+    };
+};

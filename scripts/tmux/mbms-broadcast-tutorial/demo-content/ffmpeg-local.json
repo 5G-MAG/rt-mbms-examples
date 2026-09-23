@@ -1,0 +1,37 @@
+{
+  "description": "Local ffmpeg HLS demo: broadcasts the flute-ffmpeg example's own test loop (llama_drama, 2 renditions) over MBMS via a real xMB Application/Pull session. The source is plain HTTP on localhost (python http.server serving flute-ffmpeg/watchfolder/hls), so no TLS proxy is needed -- unlike rtve-24h.json's CDN source. Load, then Activate the session in the portal's xMB tab.",
+
+  "service": {
+    "serviceClass": "urn:example:live-tv",
+    "serviceNames": ["Local ffmpeg demo"],
+    "serviceLanguages": ["eng"],
+    "receiveOnlyMode": true,
+    "serviceAnnouncementMode": "SACH"
+  },
+
+  "sessions": [
+    {
+      "sessionType": "Application",
+      "maxBitrate": 4000000,
+      "fecEnabled": false,
+
+      "mbmsBearer": {
+        "tmgiMcc": "901",
+        "tmgiMnc": "56",
+        "tmgiServiceId": 20,
+        "mcastAddr": "239.255.0.1",
+        "port": 2153,
+        "tsi": 3,
+        "serviceAreaCode": 1,
+        "cTeid": 2,
+        "mmeSmPeers": "127.0.0.1:2123"
+      },
+
+      "application": {
+        "ingestMode": "Pull",
+        "applicationEntryPointURL": "http://127.0.0.1:8899/manifest.m3u8",
+        "applicationServiceDescription": "application/vnd.apple.mpegurl"
+      }
+    }
+  ]
+}

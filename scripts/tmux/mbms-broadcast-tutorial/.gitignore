@@ -1,0 +1,10 @@
+# User-generated / local artifacts -- do NOT commit.
+# mTLS certs (incl. private keys) are generated per conf/README.md:
+conf/certs/
+# the SoapySDR zmqrx bridge is built by the user outside the repo (see README):
+soapy-zmq-bridge/
+*.log
+*.crash
+conf/*.state
+tools/ul-feeder
+__pycache__/

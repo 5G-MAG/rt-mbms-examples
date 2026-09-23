@@ -36,3 +36,6 @@
 build
 cmake-build-debug
 lib/rt-libflute
+
+# Generated ffmpeg output, not source
+flute-ffmpeg/watchfolder/

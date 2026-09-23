@@ -1,0 +1,1292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building an LTE Broadcast Lab From Scratch</title>
+</head>
+<body>
+<style>
+:root {
+  --ink: #0a0e13;
+  --panel: #121820;
+  --panel-2: #0d131a;
+  --line: #22303e;
+  --text: #dce3ea;
+  --mute: #8695a6;
+  --mute-2: #5b6b7c;
+  --signal: #4ddac2;
+  --signal-dim: #2c7d70;
+  --amber: #e8ab55;
+  --amber-dim: #7a5a2c;
+  --red: #e2685f;
+  --radius: 3px;
+  --mono: ui-monospace, "Cascadia Code", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --sans: ui-sans-serif, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+:root[data-theme="light"] {
+  --ink: #f4f6f8;
+  --panel: #ffffff;
+  --panel-2: #eef1f4;
+  --line: #d7dee5;
+  --text: #182430;
+  --mute: #51606f;
+  --mute-2: #7c8b9a;
+  --signal: #0f9c88;
+  --signal-dim: #cdeee8;
+  --amber: #a86a13;
+  --amber-dim: #f3e2c4;
+  --red: #b53d33;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ink: #f4f6f8;
+    --panel: #ffffff;
+    --panel-2: #eef1f4;
+    --line: #d7dee5;
+    --text: #182430;
+    --mute: #51606f;
+    --mute-2: #7c8b9a;
+    --signal: #0f9c88;
+    --signal-dim: #cdeee8;
+    --amber: #a86a13;
+    --amber-dim: #f3e2c4;
+    --red: #b53d33;
+  }
+}
+
+* { box-sizing: border-box; }
+html { background: var(--ink); }
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--signal-dim); color: var(--ink); }
+
+a { color: var(--signal); }
+a:focus-visible, button:focus-visible, .tocLink:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+code, pre, .kbd { font-family: var(--mono); }
+h1, h2, h3, h4 { text-wrap: balance; font-family: var(--sans); }
+
+/* ---------- shell layout ---------- */
+.shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  max-width: 1180px;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .side { display: none; }
+}
+
+.side {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 28px 20px 40px 28px;
+  border-right: 1px solid var(--line);
+}
+.side::-webkit-scrollbar { width: 8px; }
+.side::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.brand .mark { color: var(--signal); font-size: 20px; }
+.brand .name { font-weight: 700; font-size: 14px; letter-spacing: 0.02em; }
+.brand-sub { color: var(--mute-2); font-size: 12px; margin-bottom: 28px; }
+
+.tocGroup { margin-bottom: 4px; }
+.tocPhase {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute-2);
+  padding: 10px 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.tocLink {
+  display: block;
+  color: var(--mute);
+  text-decoration: none;
+  font-size: 13.5px;
+  padding: 5px 0 5px 14px;
+  border-left: 2px solid transparent;
+  transition: color .12s, border-color .12s;
+}
+.tocLink:hover { color: var(--text); }
+.tocLink.active { color: var(--signal); border-left-color: var(--signal); }
+
+/* ---------- main content ---------- */
+.main { min-width: 0; padding: 0 28px 120px; }
+
+.hero {
+  padding: 56px 0 36px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 48px;
+}
+.eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--signal);
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+.hero h1 {
+  font-size: clamp(28px, 4vw, 38px);
+  line-height: 1.15;
+  margin: 0 0 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.hero p.lede {
+  color: var(--mute);
+  font-size: 17px;
+  max-width: 62ch;
+  margin: 0 0 8px;
+}
+.metaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+.chip {
+  font-size: 12px;
+  color: var(--mute);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* architecture diagram */
+.diagram {
+  margin-top: 32px;
+  padding: 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+.diaRow { display: flex; align-items: center; gap: 0; min-width: max-content; }
+.diaBox {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-align: center;
+}
+.diaBox b { display: block; font-size: 13px; color: var(--text); }
+.diaBox span { color: var(--mute-2); font-size: 11px; }
+.diaBox.tx { border-color: var(--signal-dim); }
+.diaBox.rx { border-color: var(--amber-dim); }
+.diaArrow { color: var(--mute-2); padding: 0 10px; font-size: 14px; }
+.diaLabel {
+  font-size: 11px;
+  color: var(--mute-2);
+  text-align: center;
+  padding: 4px 0 14px;
+  letter-spacing: 0.03em;
+}
+
+/* ---------- sections ---------- */
+section.phase { margin-bottom: 64px; scroll-margin-top: 24px; }
+.phaseHead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+.phaseNum {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--signal);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+h2.phaseTitle {
+  font-size: 22px;
+  margin: 0;
+  font-weight: 700;
+}
+.phaseDek { color: var(--mute); font-size: 15px; margin: 10px 0 24px; max-width: 68ch; }
+
+h3 {
+  font-size: 16px;
+  margin: 32px 0 10px;
+  color: var(--text);
+  font-weight: 700;
+}
+h3 .repoTag {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--signal);
+  font-weight: 500;
+  margin-left: 8px;
+}
+
+p { max-width: 68ch; }
+ul, ol { max-width: 68ch; padding-left: 22px; }
+li { margin: 5px 0; }
+ul.tight li, ol.tight li { margin: 2px 0; }
+
+/* code blocks */
+.codeWrap { margin: 14px 0 22px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); }
+.codeLabel {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--mute);
+  background: var(--panel-2);
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+  letter-spacing: 0.02em;
+}
+pre {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--panel);
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.55;
+}
+pre code { color: var(--text); }
+.cmt { color: var(--mute-2); }
+.str { color: var(--signal); }
+.tok { color: var(--amber); }
+:not(pre) > code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+/* callouts */
+.callout {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--signal);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin: 18px 0;
+  background: var(--panel);
+  max-width: 68ch;
+}
+.callout.gotcha { border-left-color: var(--amber); }
+.callout.danger { border-left-color: var(--red); }
+.callout .kicker {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+.callout.gotcha .kicker { color: var(--amber); }
+.callout.danger .kicker { color: var(--red); }
+.callout:not(.gotcha):not(.danger) .kicker { color: var(--signal); }
+.callout p { margin: 4px 0 0; font-size: 14.5px; color: var(--mute); }
+.callout p:first-of-type { margin-top: 0; }
+
+/* build matrix table */
+.matrixWrap { overflow-x: auto; margin: 16px 0 26px; }
+table.matrix {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 640px;
+  font-size: 13.5px;
+}
+table.matrix th, table.matrix td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.matrix th {
+  color: var(--mute-2);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+table.matrix td.repo { font-family: var(--mono); color: var(--signal); }
+table.matrix tr:last-child td { border-bottom: none; }
+
+/* step list */
+ol.steps { list-style: none; padding: 0; margin: 20px 0; counter-reset: step; }
+ol.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding: 0 0 22px 38px;
+  border-left: 1px solid var(--line);
+  margin-left: 13px;
+}
+ol.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+ol.steps > li::before {
+  content: counter(step);
+  position: absolute;
+  left: -13px;
+  top: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--signal-dim);
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+ol.steps > li > .stepTitle { font-weight: 700; margin-bottom: 4px; }
+
+.portTable { font-variant-numeric: tabular-nums; }
+
+hr.rule { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+
+footer.endnote {
+  color: var(--mute-2);
+  font-size: 12.5px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 40px;
+}
+</style>
+
+<div class="shell">
+  <nav class="side" id="side">
+    <div class="brand"><span class="mark">&#128225;</span><span class="name">FeMBMS LAB BUILD</span></div>
+    <div class="brand-sub">10 repos &middot; 1 SDR-free RF loop</div>
+
+    <div class="tocGroup">
+      <a class="tocLink" href="#overview">Overview &amp; architecture</a>
+      <a class="tocLink" href="#prereqs">00 &middot; Prerequisites</a>
+      <a class="tocLink" href="#clone">01 &middot; Clone everything</a>
+      <a class="tocLink" href="#build-core">02 &middot; Build the PHY chain</a>
+      <a class="tocLink" href="#build-bmsc">03 &middot; Build BM-SC + GW</a>
+      <a class="tocLink" href="#build-web">04 &middot; Build the web layer</a>
+      <a class="tocLink" href="#bridge">05 &middot; The ZMQ&#8594;SDR bridge</a>
+      <a class="tocLink" href="#config">06 &middot; Configuration &amp; certs</a>
+      <a class="tocLink" href="#launch">07 &middot; Launch the stack</a>
+      <a class="tocLink" href="#content">08 &middot; Put content on air</a>
+      <a class="tocLink" href="#verify">09 &middot; Verify &amp; watch</a>
+      <a class="tocLink" href="#teardown">10 &middot; Tear down</a>
+      <a class="tocLink" href="#troubleshoot">Troubleshooting index</a>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div class="hero" id="overview">
+      <p class="eyebrow">Reference build &middot; software radio, no SDR hardware</p>
+      <h1>Standing up an LTE-based 5G&nbsp;Broadcast lab from a bare machine</h1>
+      <p class="lede">End to end: a content file becomes an HLS stream, gets ingested by a BM-SC over xMB, FLUTE-encoded,
+        tunnelled through an MBMS-GW, transmitted by a real eNB over the air &mdash; and received by a real modem and
+        client, on one machine, with no radio hardware. This is the exact sequence used to bring the lab up; every
+        command below was run for real.</p>
+      <div class="metaRow">
+        <span class="chip">10 repositories</span>
+        <span class="chip">Ubuntu 26.04-class host</span>
+        <span class="chip">ZeroMQ software radio</span>
+        <span class="chip">~90&ndash;120 min clean build</span>
+      </div>
+
+      <div class="diagram">
+        <div class="diaLabel">TRANSMIT SIDE (root network namespace)</div>
+        <div class="diaRow">
+          <div class="diaBox tx"><b>srsepc</b><span>EPC / MME</span></div>
+          <div class="diaArrow">&#8594;</div>
+          <div class="diaBox tx"><b>srsenb</b><span>eNB, ZMQ TX :2000</span></div>
+          <div class="diaArrow">&#8594;</div>
+          <div class="diaBox tx"><b>mbms-gw</b><span>M1-U tunnel</span></div>
+          <div class="diaArrow">&#8592;</div>
+          <div class="diaBox tx"><b>bmsc</b><span>xMB-C :8543</span></div>
+          <div class="diaArrow">&#8592;</div>
+          <div class="diaBox tx"><b>portal</b><span>:8080</span></div>
+        </div>
+        <div class="diaLabel" style="padding-top:18px">RECEIVE SIDE (netns <code>mbms-rx</code>, veth 10.80.0.1&#8596;10.80.0.2)</div>
+        <div class="diaRow">
+          <div class="diaBox rx"><b>zmqrx bridge</b><span>SoapySDR plugin</span></div>
+          <div class="diaArrow">&#8594;</div>
+          <div class="diaBox rx"><b>modem</b><span>PHY, MCH decode</span></div>
+          <div class="diaArrow">&#8594;</div>
+          <div class="diaBox rx"><b>client</b><span>FLUTE receive</span></div>
+          <div class="diaArrow">&#8594;</div>
+          <div class="diaBox rx"><b>application</b><span>player :3000</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="prereqs">
+      <div class="phaseHead"><span class="phaseNum">00</span><h2 class="phaseTitle">Prerequisites</h2></div>
+      <p class="phaseDek">Everything here is available from stock Ubuntu apt repos except two packages
+        (<code>libboost1.83</code> and a matching <code>cpprestsdk</code>) needed by one repo whose HTTP client
+        library predates current Boost. Do the rest with apt.</p>
+
+      <h3>System packages</h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code><span class="cmt"># toolchain</span>
+sudo apt install -y build-essential cmake ninja-build pkg-config git
+
+<span class="cmt"># PHY / SDR chain (modem, tx)</span>
+sudo apt install -y libconfig++-dev libspdlog-dev libsoapysdr-dev libzmq3-dev \
+  libfftw3-dev libmbedtls-dev libsctp-dev
+
+<span class="cmt"># BM-SC (rt-mbms-bmsc) -- xMB-C server, mutual TLS, DASH/HLS parsing</span>
+sudo apt install -y libmicrohttpd-dev libsrtp2-dev libcurl4-openssl-dev \
+  libglibmm-2.4-dev libxml++-5.0-dev libboost-json1.90-dev gnutls-dev
+
+<span class="cmt"># web layer (application, application-provider) &mdash; Node.js 18+</span>
+sudo apt install -y nodejs npm
+
+<span class="cmt"># the flute-ffmpeg example project (optional, used in step 08)</span>
+sudo apt install -y libpoco-dev libpistache-dev ffmpeg fonts-freefont-ttf
+
+<span class="cmt"># network namespace tooling for the receive side</span>
+sudo apt install -y iproute2 nftables</code></pre>
+      </div>
+
+      <div class="callout gotcha">
+        <div class="kicker">Gotcha &mdash; two of the ten repos need an older Boost</div>
+        <p><code>rt-mbms-client</code> links a <code>cpprestsdk</code> build that predates Boost 1.90's API
+          changes. On a machine whose only Boost is 1.90+ (any current Ubuntu), its CMake configure fails looking
+          for a matching <code>boost_random</code> component. The fix isn't a code change &mdash; it's building
+          Boost 1.83 and cpprestsdk against it, once, into their own prefix.</p>
+      </div>
+      <div class="codeWrap">
+        <div class="codeLabel">bash &mdash; build once, ~25 min</div>
+        <pre><code><span class="cmt"># Boost 1.83 into its own prefix, kept separate from the system's Boost 1.90</span>
+wget -q https://archives.boost.io/release/1.83.0/source/boost_1_83_0.tar.gz
+tar xzf boost_1_83_0.tar.gz &amp;&amp; cd boost_1_83_0
+./bootstrap.sh --prefix=/opt/boost-legacy
+sudo ./b2 install --prefix=/opt/boost-legacy -j$(nproc)
+cd ..
+
+<span class="cmt"># cpprestsdk, built against that Boost, installed to the normal /usr/local</span>
+git clone --recursive -b v2.10.19 https://github.com/microsoft/cpprestsdk.git
+cd cpprestsdk &amp;&amp; mkdir build &amp;&amp; cd build
+cmake .. -DBOOST_ROOT=/opt/boost-legacy -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc) &amp;&amp; sudo make install</code></pre>
+      </div>
+      <p>Everything else builds against the system's own Boost 1.90 &mdash; this legacy prefix is only ever passed
+        explicitly, in one place (step 02, <code>rt-mbms-client</code>).</p>
+
+      <h3>Passwordless sudo (optional, for automation)</h3>
+      <p>The EPC and the receive-side network namespace both need root. If you intend to drive any of this from a
+        non-interactive shell (CI, an agent, a script with no TTY), plain <code>sudo</code> won't prompt correctly.
+        Grant your own user NOPASSWD once via <code>sudo visudo</code>, or just run the launch scripts from an
+        interactive terminal &mdash; either works.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="clone">
+      <div class="phaseHead"><span class="phaseNum">01</span><h2 class="phaseTitle">Clone everything</h2></div>
+      <p class="phaseDek">Clone all ten repos directly under your home directory, using these exact names, from
+        the official <strong>5G-MAG</strong> org. The launch scripts in step 07 hard-code paths like
+        <code>~/rt-mbms-modem</code> &mdash; cloning here means zero path edits later. If you'd rather keep repos
+        elsewhere, symlink these names back to wherever they really live.</p>
+
+      <div class="callout gotcha">
+        <div class="kicker">A handful of fixes below aren't upstream yet</div>
+        <p>5G-MAG is the right place to clone from &mdash; a personal fork should only ever be a temporary staging
+          area while a fix is in flight, not the long-term source. As of this build, though, a few of the fixes
+          this tutorial depends on exist only on such a fork and haven't landed in the 5G-MAG repos yet:</p>
+        <ul class="tight">
+          <li><code>rt-mbms-client</code>'s Boost&nbsp;1.90/GCC&nbsp;15/fmt&nbsp;v10 build fixes (step&nbsp;02)</li>
+          <li><code>rt-libflute</code>'s matching <code>io_context</code>/<code>steady_timer</code> port and the
+            multicast bind/join fix, and its Boost.Asio/<code>xfrm_algo</code> IPsec fix</li>
+          <li>the portal's xMB-C TLS&nbsp;1.2 cap for the GnuTLS handshake bug (step&nbsp;06)</li>
+          <li>the <code>zmqrx</code> bridge (step&nbsp;05) &mdash; this one was never upstream anywhere; it's new
+            work from this build</li>
+          <li>the various <code>mw</code>&rarr;<code>client</code> / <code>rt-wui</code>&rarr;<code>rt-mbms-application</code>
+            documentation and dead-code cleanups described throughout</li>
+        </ul>
+        <p>Every one of them is fully documented inline below (that's the point of this tutorial), so a clean
+          5G-MAG clone plus these steps gets you the same working lab. If any have since been upstreamed via PR,
+          skip the corresponding step.</p>
+      </div>
+
+      <div class="matrixWrap">
+        <table class="matrix">
+          <tr><th>Repo</th><th>Branch</th><th>Role</th></tr>
+          <tr><td class="repo">rt-libflute</td><td>development</td><td>FLUTE (RFC&nbsp;6726) library &mdash; shared by client, BM-SC, and the examples</td></tr>
+          <tr><td class="repo">rt-common-shared</td><td>main</td><td>Shared build files, no build step of its own</td></tr>
+          <tr><td class="repo">rt-mbms-modem</td><td>development</td><td>Receiver: PHY, MAC, MCCH/MCH decode</td></tr>
+          <tr><td class="repo">rt-mbms-tx</td><td>development</td><td>eNB + EPC (srsenb / srsepc)</td></tr>
+          <tr><td class="repo">rt-mbms-client</td><td>development</td><td>Middleware: FLUTE receive, HTTP cache/proxy</td></tr>
+          <tr><td class="repo">rt-mbms-bmsc</td><td>master</td><td>BM-SC: xMB-C ingest, FLUTE transmit, SACH</td></tr>
+          <tr><td class="repo">rt-mbms-gw</td><td>master</td><td>MBMS-GW: M1-U tunnel, Sm control</td></tr>
+          <tr><td class="repo">rt-mbms-application</td><td>development</td><td>Web player (formerly <code>rt-wui</code>)</td></tr>
+          <tr><td class="repo">rt-mbms-application-provider</td><td>main</td><td>Control portal: eNB/BM-SC admin, xMB, alerts</td></tr>
+          <tr><td class="repo">rt-mbms-examples</td><td>development</td><td>flute-ffmpeg content generator + this tutorial's scripts</td></tr>
+        </table>
+      </div>
+
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~
+git clone -b development git@github.com:5G-MAG/rt-libflute.git
+git clone -b main        git@github.com:5G-MAG/rt-common-shared.git
+git clone -b development git@github.com:5G-MAG/rt-mbms-modem.git
+git clone -b development git@github.com:5G-MAG/rt-mbms-tx.git
+git clone -b development git@github.com:5G-MAG/rt-mbms-client.git
+git clone -b master       git@github.com:5G-MAG/rt-mbms-bmsc.git
+git clone -b master       git@github.com:5G-MAG/rt-mbms-gw.git
+git clone -b development git@github.com:5G-MAG/rt-mbms-application.git
+git clone -b main         git@github.com:5G-MAG/rt-mbms-application-provider.git
+git clone -b development git@github.com:5G-MAG/rt-mbms-examples.git</code></pre>
+      </div>
+      <p>Three repos carry submodules and need one extra command after cloning:</p>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-modem   &amp;&amp; git submodule update --init --recursive &amp;&amp; cd ~
+cd ~/rt-mbms-bmsc    &amp;&amp; git submodule update --init --recursive &amp;&amp; cd ~
+cd ~/rt-mbms-gw      &amp;&amp; git submodule update --init --recursive &amp;&amp; cd ~
+cd ~/rt-mbms-examples &amp;&amp; git submodule update --init --recursive &amp;&amp; cd ~</code></pre>
+      </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="build-core">
+      <div class="phaseHead"><span class="phaseNum">02</span><h2 class="phaseTitle">Build the PHY chain</h2></div>
+      <p class="phaseDek">Build order matters here: <code>rt-libflute</code> first (three other repos embed it as a
+        submodule and expect a working build), then the two srsRAN-derived binaries.</p>
+
+      <h3>rt-libflute<span class="repoTag">standalone build</span></h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-libflute
+mkdir build &amp;&amp; cd build
+cmake -GNinja ..
+ninja
+ctest --output-on-failure   <span class="cmt"># optional, exercises the transmitter unit tests</span></code></pre>
+      </div>
+
+      <h3>rt-mbms-modem<span class="repoTag">vendors its own srsRAN</span></h3>
+      <p>This repo vendors a patched srsRAN tree under <code>lib/srsran</code>; nothing extra to fetch beyond the
+        submodule update in step 01.</p>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-modem
+mkdir build &amp;&amp; cd build
+cmake -GNinja ..
+ninja</code></pre>
+      </div>
+      <p>Produces <code>build/modem</code>. A clean build compiles the entire vendored srsRAN test suite alongside
+        it (100+ targets) &mdash; that's expected, not a sign anything went wrong.</p>
+
+      <h3>rt-mbms-tx<span class="repoTag">srsenb + srsepc, Unix Makefiles</span></h3>
+      <div class="callout gotcha">
+        <div class="kicker">Gotcha &mdash; this one isn't Ninja</div>
+        <p>Unlike every other C++ repo here, <code>rt-mbms-tx</code>'s own build tooling defaults to Unix
+          Makefiles. Passing <code>-GNinja</code> configures fine but then <code>ninja</code> fails with
+          <code>loading 'build.ninja': No such file or directory</code> &mdash; there's no ninja file to load. Use
+          <code>make</code>.</p>
+      </div>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-tx
+mkdir build &amp;&amp; cd build
+cmake ..
+make -j$(nproc)</code></pre>
+      </div>
+      <p>Produces <code>build/srsenb/src/srsenb</code>, <code>build/srsepc/src/srsepc</code>, and
+        <code>build/srsue/src/srsue</code> (the UE binary isn't used in this lab, but builds as part of the same
+        tree).</p>
+
+      <h3>rt-mbms-client<span class="repoTag">needs the legacy Boost prefix</span></h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-client
+mkdir build &amp;&amp; cd build
+cmake -GNinja -DBOOST_ROOT=/opt/boost-legacy ..
+ninja</code></pre>
+      </div>
+      <p>Produces <code>build/client</code> (the binary was renamed from <code>mw</code> in a recent restructure;
+        expect <code>client</code>, not <code>mw</code>, in your own <code>build/</code>).</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="build-bmsc">
+      <div class="phaseHead"><span class="phaseNum">03</span><h2 class="phaseTitle">Build BM-SC and the MBMS-GW</h2></div>
+      <p class="phaseDek">Both build cleanly against system Boost 1.90 with the packages from step 00 &mdash; no
+        special flags.</p>
+
+      <h3>rt-mbms-bmsc<span class="repoTag">xMB-C, mutual TLS</span></h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-bmsc
+mkdir build &amp;&amp; cd build
+cmake -GNinja ..
+ninja</code></pre>
+      </div>
+      <p>Produces <code>build/bmsc/bmsc</code>. If <code>cmake</code> stops partway through complaining about a
+        missing package (<code>libmicrohttpd</code>, <code>libxml++-5.0</code>, <code>glibmm-2.4</code>,
+        <code>libcurl</code>, or <code>boost_json</code> most commonly), it's one of the step&nbsp;00 packages that
+        didn't take &mdash; re-check that list rather than hunting for a substitute package name.</p>
+
+      <h3>rt-mbms-gw<span class="repoTag">MBMS-GW</span></h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-gw
+mkdir build &amp;&amp; cd build
+cmake -GNinja ..
+ninja</code></pre>
+      </div>
+      <p>Produces <code>build/mbms-gw/mbms-gw</code>.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="build-web">
+      <div class="phaseHead"><span class="phaseNum">04</span><h2 class="phaseTitle">Build the web layer</h2></div>
+      <p class="phaseDek">Both are plain Node projects &mdash; <code>npm install</code>, then a required
+        <code>.env</code>.</p>
+
+      <h3>rt-mbms-application<span class="repoTag">the player, formerly rt-wui</span></h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-application
+npm install
+cp .env.example .env   <span class="cmt"># defaults: PORT=3000, MODEM_PORT=3010, MW_PORT=3020</span></code></pre>
+      </div>
+
+      <h3>rt-mbms-application-provider<span class="repoTag">the control portal</span></h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-application-provider
+npm install</code></pre>
+      </div>
+      <p>This one <strong>refuses to start</strong> without an <code>AUTH_TOKEN</code> &mdash; it controls live RF
+        transmit configuration on the eNodeB, so it won't run unauthenticated even in a lab. Create
+        <code>.env</code> with at minimum:</p>
+      <div class="codeWrap">
+        <div class="codeLabel">.env</div>
+        <pre><code>PORT=8080
+HOST=127.0.0.1
+AUTH_USER=admin
+AUTH_TOKEN=<span class="tok">&lt;generate one: openssl rand -hex 16&gt;</span>
+
+<span class="cmt"># xMB tab (TS 26.348) -- filled in during step 06, leave blank for now</span>
+XMB_SERVER_URL=
+XMB_CLIENT_CERT_PATH=
+XMB_CLIENT_KEY_PATH=
+XMB_SERVER_CA_PATH=
+XMB_INSECURE_SKIP_SERVER_VERIFY=</code></pre>
+      </div>
+      <p>The full field reference (control-socket paths, CAP alert logging, xMB) is documented inline in the
+        shipped <code>.env</code> once you've run <code>npm install</code>.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="bridge">
+      <div class="phaseHead"><span class="phaseNum">05</span><h2 class="phaseTitle">The ZMQ&#8594;SDR bridge</h2></div>
+      <p class="phaseDek">This is the one piece that doesn't ship anywhere. <code>rt-mbms-modem</code> only ever
+        opens radios through <code>SoapySDR::Device::make()</code> &mdash; there is no code path that skips
+        SoapySDR, even for a software-radio loopback. So the eNB's ZeroMQ transmit output needs a small SoapySDR
+        device plugin sitting in front of the modem, translating one into the other.</p>
+
+      <div class="callout">
+        <div class="kicker">What it actually bridges</div>
+        <p><code>rt-mbms-tx</code>'s eNB uses srsRAN's own native <code>zmq</code> RF driver in
+          <code>tx_type=pub</code> mode: it binds a ZMQ <code>PUB</code> socket and free-runs, broadcasting raw
+          interleaved complex-float32 I/Q bursts (no framing, no header &mdash; see
+          <code>_rf_zmq_tx_baseband()</code> in <code>rf_zmq_imp_tx.c</code>) to whoever's listening. This plugin
+          is the "whoever's listening": a <code>SUB</code> socket, drained continuously into a ring buffer from a
+          background thread, mirroring srsRAN's own reference receiver
+          (<code>rf_zmq_imp_rx.c</code>/<code>rf_zmq_async_rx_thread</code>) almost line for line.</p>
+      </div>
+
+      <div class="codeWrap">
+        <div class="codeLabel">SoapyZmqBridge.cpp &mdash; save this file verbatim</div>
+        <pre><code>// Minimal SoapySDR device plugin that bridges to srsenb's ZMQ RF driver
+// (srsRAN's native "zmq" device, tx_type=pub -- a ZMQ_PUB socket bound at
+// tx_port that free-runs, broadcasting raw interleaved complex-float32 I/Q
+// bursts to any connected subscriber; see rf_zmq_imp_tx.c/_rf_zmq_tx_baseband
+// and rf_zmq_imp_rx.c/rf_zmq_async_rx_thread in rt-mbms-modem's vendored
+// srsRAN tree, which this bridge mirrors on the RX side). This lets
+// rt-mbms-modem run in its normal live-SDR mode (no -f file, no restart
+// loop) while the "radio" underneath is actually srsenb's live ZMQ TX
+// output. No real hardware involved.
+//
+// device_args:
+//   driver=zmqrx
+//   rx_port=tcp://127.0.0.1:2000   (srsenb's tx_port; "endpoint" also accepted)
+//   base_srate / native_srate: accepted and ignored (informational only --
+//     no resampling/decimation is implemented; keep the eNB and modem at the
+//     same n_prb / sample rate).
+
+#include &lt;SoapySDR/Device.hpp&gt;
+#include &lt;SoapySDR/Registry.hpp&gt;
+#include &lt;SoapySDR/Logger.hpp&gt;
+#include &lt;zmq.h&gt;
+#include &lt;atomic&gt;
+#include &lt;chrono&gt;
+#include &lt;complex&gt;
+#include &lt;condition_variable&gt;
+#include &lt;cstdio&gt;
+#include &lt;cstring&gt;
+#include &lt;mutex&gt;
+#include &lt;stdexcept&gt;
+#include &lt;thread&gt;
+#include &lt;vector&gt;
+
+namespace {
+constexpr size_t kRingCapacitySamples = 3072000; <span class="cmt">// 10 subframes @ 20 MHz</span>
+}
+
+class SoapyZmqBridge : public SoapySDR::Device
+{
+public:
+    explicit SoapyZmqBridge(const SoapySDR::Kwargs &amp;args)
+        : _ring(kRingCapacitySamples)
+    {
+        std::string endpoint = "tcp://127.0.0.1:2000";
+        auto it = args.find("rx_port");
+        if (it == args.end()) it = args.find("endpoint");
+        if (it != args.end()) endpoint = it-&gt;second;
+
+        _ctx = zmq_ctx_new();
+        _sock = zmq_socket(_ctx, ZMQ_SUB);
+        zmq_setsockopt(_sock, ZMQ_SUBSCRIBE, "", 0);
+        int timeout_ms = 100;
+        zmq_setsockopt(_sock, ZMQ_RCVTIMEO, &amp;timeout_ms, sizeof(timeout_ms));
+        int rc = zmq_connect(_sock, endpoint.c_str());
+        if (rc != 0) {
+            SoapySDR::logf(SOAPY_SDR_ERROR, "SoapyZmqBridge: failed to connect to %s", endpoint.c_str());
+        } else {
+            SoapySDR::logf(SOAPY_SDR_INFO, "SoapyZmqBridge: subscribed to %s", endpoint.c_str());
+        }
+
+        _running = true;
+        _rxThread = std::thread(&amp;SoapyZmqBridge::rxThreadBody, this);
+    }
+
+    ~SoapyZmqBridge() override
+    {
+        _running = false;
+        if (_rxThread.joinable()) _rxThread.join();
+        if (_sock) zmq_close(_sock);
+        if (_ctx) zmq_ctx_destroy(_ctx);
+    }
+
+    std::string getDriverKey(void) const override { return "zmqrx"; }
+    std::string getHardwareKey(void) const override { return "ZmqRx"; }
+
+    size_t getNumChannels(const int direction) const override
+    {
+        return direction == SOAPY_SDR_RX ? 1 : 0;
+    }
+
+    std::vector&lt;std::string&gt; listAntennas(const int, const size_t) const override { return {"RX"}; }
+    void setAntenna(const int, const size_t, const std::string &amp;) override {}
+    std::string getAntenna(const int, const size_t) const override { return "RX"; }
+
+    bool hasGainMode(const int, const size_t) const override { return true; }
+    void setGainMode(const int, const size_t, const bool) override {}
+    void setGain(const int, const size_t, const double) override {}
+    void setGain(const int, const size_t, const std::string &amp;, const double) override {}
+
+    void setFrequency(const int, const size_t, const double freq, const SoapySDR::Kwargs &amp;) override { _freq = freq; }
+    double getFrequency(const int, const size_t) const override { return _freq; }
+
+    void setBandwidth(const int, const size_t, const double bw) override { _bw = bw; }
+    double getBandwidth(const int, const size_t) const override { return _bw; }
+
+    void setSampleRate(const int, const size_t, const double rate) override { _rate = rate; }
+    double getSampleRate(const int, const size_t) const override { return _rate; }
+    std::vector&lt;double&gt; listSampleRates(const int, const size_t) const override { return {_rate}; }
+
+    SoapySDR::Stream *setupStream(const int direction, const std::string &amp;format,
+                                   const std::vector&lt;size_t&gt; &amp;, const SoapySDR::Kwargs &amp;) override
+    {
+        if (direction != SOAPY_SDR_RX) return nullptr;
+        if (format != "CF32") {
+            SoapySDR::logf(SOAPY_SDR_ERROR, "SoapyZmqBridge: only CF32 format supported, got %s", format.c_str());
+            return nullptr;
+        }
+        return reinterpret_cast&lt;SoapySDR::Stream *&gt;(this);
+    }
+
+    void closeStream(SoapySDR::Stream *) override {}
+    int activateStream(SoapySDR::Stream *, const int, const long long, const size_t) override { return 0; }
+    int deactivateStream(SoapySDR::Stream *, const int, const long long) override { return 0; }
+
+    int readStream(SoapySDR::Stream *, void *const *buffs, const size_t numElems,
+                    int &amp;flags, long long &amp;timeNs, const long timeoutUs) override
+    {
+        flags = 0;
+        timeNs = 0;
+        auto *out = reinterpret_cast&lt;std::complex&lt;float&gt; *&gt;(buffs[0]);
+
+        std::unique_lock&lt;std::mutex&gt; lock(_ring.mutex);
+        if (_ring.count == 0) {
+            _ring.cv.wait_for(lock, std::chrono::microseconds(timeoutUs &gt; 0 ? timeoutUs : 100000),
+                               [this] { return _ring.count &gt; 0 || !_running; });
+        }
+        size_t take = std::min(_ring.count, numElems);
+        for (size_t i = 0; i &lt; take; ++i) {
+            out[i] = _ring.buf[_ring.head];
+            _ring.head = (_ring.head + 1) % _ring.buf.size();
+        }
+        _ring.count -= take;
+        if (take == 0) return SOAPY_SDR_TIMEOUT;
+        return static_cast&lt;int&gt;(take);
+    }
+
+private:
+    struct Ring {
+        explicit Ring(size_t capacity) : buf(capacity) {}
+        std::vector&lt;std::complex&lt;float&gt;&gt; buf;
+        size_t head = 0, tail = 0, count = 0;
+        std::mutex mutex;
+        std::condition_variable cv;
+    };
+
+    void rxThreadBody()
+    {
+        std::vector&lt;uint8_t&gt; rxbuf(1 &lt;&lt; 20);
+        while (_running) {
+            int n = zmq_recv(_sock, rxbuf.data(), rxbuf.size(), 0);
+            if (n &lt; 0) continue; <span class="cmt">// EAGAIN on ZMQ_RCVTIMEO expiry is the normal idle case</span>
+            if (static_cast&lt;size_t&gt;(n) == rxbuf.size()) {
+                rxbuf.resize(rxbuf.size() * 2);
+                SoapySDR::logf(SOAPY_SDR_WARNING, "SoapyZmqBridge: grew recv buffer to %zu bytes", rxbuf.size());
+            }
+            size_t nsamples = static_cast&lt;size_t&gt;(n) / sizeof(std::complex&lt;float&gt;);
+            if (nsamples == 0) continue;
+            auto *samples = reinterpret_cast&lt;std::complex&lt;float&gt; *&gt;(rxbuf.data());
+
+            std::lock_guard&lt;std::mutex&gt; lock(_ring.mutex);
+            for (size_t i = 0; i &lt; nsamples; ++i) {
+                if (_ring.count == _ring.buf.size()) {
+                    _ring.head = (_ring.head + 1) % _ring.buf.size();
+                    --_ring.count;
+                }
+                _ring.buf[_ring.tail] = samples[i];
+                _ring.tail = (_ring.tail + 1) % _ring.buf.size();
+                ++_ring.count;
+            }
+            _ring.cv.notify_one();
+        }
+    }
+
+    void *_ctx = nullptr;
+    void *_sock = nullptr;
+    double _freq = 0, _bw = 0, _rate = 15360000.0;
+    std::atomic&lt;bool&gt; _running{false};
+    std::thread _rxThread;
+    Ring _ring;
+};
+
+static SoapySDR::KwargsList findZmqBridge(const SoapySDR::Kwargs &amp;)
+{
+    SoapySDR::Kwargs args;
+    args["driver"] = "zmqrx";
+    args["label"] = "ZMQ RX Bridge to srsenb";
+    return {args};
+}
+
+static SoapySDR::Device *makeZmqBridge(const SoapySDR::Kwargs &amp;args) { return new SoapyZmqBridge(args); }
+
+static SoapySDR::Registry registerZmqBridge("zmqrx", &amp;findZmqBridge, &amp;makeZmqBridge, SOAPY_SDR_ABI_VERSION);</code></pre>
+      </div>
+
+      <div class="codeWrap">
+        <div class="codeLabel">bash &mdash; build and install</div>
+        <pre><code>mkdir -p ~/soapy-zmq-bridge &amp;&amp; cd ~/soapy-zmq-bridge
+<span class="cmt"># paste the file above as SoapyZmqBridge.cpp, then:</span>
+g++ -std=c++17 -shared -fPIC -O2 SoapyZmqBridge.cpp -o libzmqrxSupport.so \
+  $(pkg-config --cflags --libs SoapySDR) $(pkg-config --cflags --libs libzmq) -lpthread
+
+<span class="cmt"># install into SoapySDR's default module search path</span>
+sudo cp libzmqrxSupport.so "$(pkg-config --variable=libdir SoapySDR)/SoapySDR/modules0.8/libzmqrxSupport.so"
+
+<span class="cmt"># confirm it registered</span>
+SoapySDRUtil --info | grep "Available factories"
+<span class="cmt"># -&gt; Available factories... zmqrx</span></code></pre>
+      </div>
+
+      <div class="callout gotcha">
+        <div class="kicker">Gotcha &mdash; duplicate module registration</div>
+        <p>If <code>SOAPY_SDR_PLUGIN_PATH</code> also points at <code>~/soapy-zmq-bridge</code> (the receive
+          launcher below sets this by default) <em>and</em> the module is also installed system-wide, SoapySDR logs
+          <code>duplicate entry for zmqrx</code> at startup. It's cosmetic &mdash; SoapySDR just picks one and
+          continues &mdash; but if it bothers you, only install to one location.</p>
+      </div>
+
+      <h3>Sanity-check it standalone</h3>
+      <p>Before wiring this into the full stack, confirm the bridge actually receives real bytes. Bind a fake
+        publisher, then read from the bridge directly:</p>
+      <div class="codeWrap">
+        <div class="codeLabel">fake_enb_pub.py</div>
+        <pre><code>import zmq, numpy as np, time
+ctx = zmq.Context(); sock = ctx.socket(zmq.PUB); sock.bind("tcp://*:2000")
+time.sleep(1.0)
+i = 0
+while True:
+    t = np.arange(15360) + i * 15360
+    iq = (np.cos(t * 0.01) + 1j * np.sin(t * 0.01)).astype(np.complex64)
+    sock.send(iq.tobytes())
+    i += 1
+    time.sleep(0.001)</code></pre>
+      </div>
+      <p>Run it, then use <code>SoapySDRUtil --probe="driver=zmqrx,rx_port=tcp://127.0.0.1:2000"</code> or a short
+        C++ test that calls <code>SoapySDR::Device::make()</code> and <code>readStream()</code> in a loop &mdash;
+        you should see non-zero sample counts with values in the expected &plusmn;1 range. This step catches a
+        broken bridge before it's buried under three other processes' logs.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="config">
+      <div class="phaseHead"><span class="phaseNum">06</span><h2 class="phaseTitle">Configuration &amp; certificates</h2></div>
+      <p class="phaseDek"><code>rt-mbms-examples</code>' <code>scripts/tmux/mbms-broadcast-tutorial/conf/</code>
+        ships a complete, working ZeroMQ config set for every component &mdash; you shouldn't need to touch the
+        <code>.conf</code> files themselves. Two things still need generating: the BM-SC's mTLS certificate pair,
+        and the portal's xMB client wiring.</p>
+
+      <h3>Generate the BM-SC's mTLS certificates</h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial
+mkdir -p conf/certs &amp;&amp; cd conf/certs
+openssl req -x509 -newkey rsa:2048 -nodes -keyout server_key.pem \
+  -out server_cert.pem -days 3650 -subj "/CN=localhost"
+openssl req -x509 -newkey rsa:2048 -nodes -keyout client_key.pem \
+  -out client_cert.pem -days 3650 -subj "/CN=xmb-client"</code></pre>
+      </div>
+      <p><code>conf/bmsc.conf</code> already points <code>tls_cert_path</code> / <code>tls_key_path</code> /
+        <code>trusted_client_cert_path</code> at exactly these three filenames &mdash; nothing else to edit there.</p>
+
+      <h3>Point the portal at the BM-SC and the certs</h3>
+      <p>Add to <code>~/rt-mbms-application-provider/.env</code> (left blank in step 04):</p>
+      <div class="codeWrap">
+        <div class="codeLabel">.env</div>
+        <pre><code>PORT=8080
+XMB_SERVER_URL=https://127.0.0.1:8543
+XMB_CLIENT_CERT_PATH=/home/&lt;you&gt;/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial/conf/certs/client_cert.pem
+XMB_CLIENT_KEY_PATH=/home/&lt;you&gt;/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial/conf/certs/client_key.pem
+XMB_INSECURE_SKIP_SERVER_VERIFY=true</code></pre>
+      </div>
+      <p>The self-signed server cert has no chain to a real CA, so
+        <code>XMB_INSECURE_SKIP_SERVER_VERIFY=true</code> is the honest setting for a local lab &mdash; the portal
+        logs a loud warning about it on startup, which is the point.</p>
+
+      <div class="callout danger">
+        <div class="kicker">Gotcha &mdash; the handshake that silently never completes</div>
+        <p>Even with correct certs, the portal's first request to the BM-SC can fail with the BM-SC logging
+          <code>Error: received handshake message out of context.</code> in a tight loop, and the portal returning a
+          generic connection error. The cause: Node negotiates TLS&nbsp;1.3 by default, and the BM-SC's xMB-C
+          listener (libmicrohttpd over GnuTLS) can't complete a TLS&nbsp;1.3 handshake at all. This is the same
+          underlying incompatibility the project already works around for outbound HTTPS pulls from modern CDNs
+          (see the content-loading proxy in step 08) &mdash; here it's the inbound direction. The fix is one line in
+          <code>rt-mbms-application-provider/lib/xmb-client.js</code>, in the <code>https.Agent</code> constructor:</p>
+      </div>
+      <div class="codeWrap">
+        <div class="codeLabel">lib/xmb-client.js</div>
+        <pre><code><span class="cmt">// before</span>
+const agent = new https.Agent({ cert, key, ca, rejectUnauthorized, keepAlive: true });
+
+<span class="cmt">// after -- caps the handshake at TLS 1.2, which GnuTLS on the BM-SC side completes fine</span>
+const agent = new https.Agent({ cert, key, ca, rejectUnauthorized, keepAlive: true, maxVersion: 'TLSv1.2' });</code></pre>
+      </div>
+      <p>If you've already applied this patch and still see the error, you're probably looking at a stale log
+        &mdash; restart the portal process and the handshake errors stop appearing for any <em>new</em> requests.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="launch">
+      <div class="phaseHead"><span class="phaseNum">07</span><h2 class="phaseTitle">Launch the stack</h2></div>
+      <p class="phaseDek">Two scripts, run in order, in <code>~/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial/</code>.
+        The transmit side runs in your normal (root) network namespace; the receive side runs inside its own
+        namespace so its multicast traffic doesn't collide with the eNB's own M1-U receiver on the same host.</p>
+
+      <ol class="steps">
+        <li>
+          <div class="stepTitle">Start the transmit side</div>
+          <div class="codeWrap"><div class="codeLabel">bash</div><pre><code>./transmit.sh</code></pre></div>
+          <p>Prompts for your sudo password once (srsepc needs root for its TUN interface), then launches, in
+            order: EPC, a small <code>ul-feeder</code> helper (answers the eNB's own uplink ZMQ requests with
+            zero-sample bursts so its downlink-only radio stays paced &mdash; without it the eNB either blocks
+            forever or free-runs and floods the receiver), eNB, MBMS-GW, BM-SC, and the portal. Logs land in
+            <code>~/.local/state/mbms-broadcast-tutorial/&lt;Name&gt;.log</code>.</p>
+        </li>
+        <li>
+          <div class="stepTitle">Start the receive side</div>
+          <div class="codeWrap"><div class="codeLabel">bash</div><pre><code>sudo ./receive-netns.sh start</code></pre></div>
+          <p>Creates network namespace <code>mbms-rx</code>, a veth pair (<code>10.80.0.1</code> root &harr;
+            <code>10.80.0.2</code> namespace), and launches modem, client, and application inside it. The modem's
+            ZMQ RX connects to <code>tcp://10.80.0.1:2000</code> &mdash; the eNB's TX, reachable over the veth.</p>
+        </li>
+      </ol>
+
+      <div class="callout gotcha">
+        <div class="kicker">Gotcha &mdash; the TUN-interface race</div>
+        <p>The modem creates its <code>mbms_modem_tun</code> device only once it's achieved cell sync (PSS/SSS +
+          MIB decode), which can take longer than the script's 20-second wait, especially on a first cold run. If
+          you see <code>WARNING: mbms_modem_tun never appeared</code>, check the modem's log first &mdash; if it
+          shows a clean MIB decode and <code>TUN file descriptor N</code>, the interface exists but is simply still
+          <code>DOWN</code>. Bring the rest of the setup up manually:</p>
+      </div>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>sudo ip netns exec mbms-rx ip addr add 192.168.180.10/24 dev mbms_modem_tun
+sudo ip netns exec mbms-rx ip link set mbms_modem_tun up
+sudo ip netns exec mbms-rx ip route replace 224.0.0.0/4 dev mbms_modem_tun
+sudo ip netns exec mbms-rx sysctl -q -w net.ipv4.conf.mbms_modem_tun.rp_filter=0
+sudo ip netns exec mbms-rx sysctl -q -w net.ipv4.conf.all.rp_filter=0
+sudo ip netns exec mbms-rx nft add table ip mbmsfix
+sudo ip netns exec mbms-rx nft add chain ip mbmsfix pre \
+  '{ type filter hook prerouting priority -300; policy accept; }'
+sudo ip netns exec mbms-rx nft add rule ip mbmsfix pre iifname mbms_modem_tun \
+  ip saddr 127.0.0.0/8 ip saddr set 192.168.180.1</code></pre>
+      </div>
+      <p>The last three lines matter beyond the race condition, too: BM-SC and MBMS-GW both run on loopback, so
+        recovered broadcast packets arrive on the TUN with a <code>127.0.0.1</code> source &mdash; and the kernel
+        silently drops multicast datagrams with a loopback source on a non-loopback interface, before they ever
+        reach a socket. Rewriting the source in <code>prerouting</code> is what makes the announcement channel and
+        the content both actually arrive.</p>
+
+      <div class="callout gotcha">
+        <div class="kicker">Gotcha &mdash; the client can crash on a cold start</div>
+        <p>If the client process launches before the TUN interface is up, it aborts immediately:
+          <code>terminate called after throwing ... set_option: No such device</code>. If this happens, just restart
+          it once the TUN steps above are done &mdash; it binds cleanly the second time.</p>
+      </div>
+
+      <h3>Ports in play</h3>
+      <div class="matrixWrap">
+        <table class="matrix portTable">
+          <tr><th>Component</th><th>Port</th><th>Bind</th></tr>
+          <tr><td class="repo">EPC / eNB control</td><td>2100&ndash;2102</td><td>127.0.0.1</td></tr>
+          <tr><td class="repo">MBMS-GW control</td><td>2101</td><td>127.0.0.1</td></tr>
+          <tr><td class="repo">eNB ZMQ TX</td><td>2000</td><td>0.0.0.0 (veth-reachable)</td></tr>
+          <tr><td class="repo">BM-SC xMB-C</td><td>8543</td><td>127.0.0.1</td></tr>
+          <tr><td class="repo">Portal</td><td>8080</td><td>127.0.0.1</td></tr>
+          <tr><td class="repo">Modem REST</td><td>3010</td><td>10.80.0.2 (in netns)</td></tr>
+          <tr><td class="repo">Client REST</td><td>3020</td><td>10.80.0.2 (in netns)</td></tr>
+          <tr><td class="repo">Application (player)</td><td>3000</td><td>10.80.0.2 (in netns)</td></tr>
+        </table>
+      </div>
+      <p>Nothing here binds to a real network interface &mdash; the whole lab is loopback- and veth-only, invisible
+        outside the host.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="content">
+      <div class="phaseHead"><span class="phaseNum">08</span><h2 class="phaseTitle">Put content on air</h2></div>
+      <p class="phaseDek">This is the actual point of the exercise: get a real HLS stream ingested by the BM-SC over
+        xMB, not fed to the middleware directly. The <code>flute-ffmpeg</code> example project supplies test video
+        and the transcoding script; you supply an HTTP server and an xMB session.</p>
+
+      <h3>Generate a live HLS test stream</h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-examples/flute-ffmpeg
+mkdir -p watchfolder/hls
+<span class="cmt"># files/ffmpeg-hls.sh loops files/content/01_llama_drama_1080p.mp4 into two HLS</span>
+<span class="cmt"># renditions (720p@2Mbps, 540p@1Mbps) written continuously into watchfolder/hls/</span>
+bash files/ffmpeg-hls.sh &amp;</code></pre>
+      </div>
+
+      <h3>Serve it over plain HTTP</h3>
+      <p>The BM-SC's Application/Pull ingestion fetches over libcurl+GnuTLS, which &mdash; per the same GnuTLS
+        limitation noted in step 06 &mdash; can't complete a TLS&nbsp;1.3 handshake against modern HTTPS CDNs
+        either. Since this content is already local, skip TLS entirely:</p>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-examples/flute-ffmpeg/watchfolder/hls
+python3 -m http.server 8899 --bind 127.0.0.1 &amp;</code></pre>
+      </div>
+      <div class="callout">
+        <div class="kicker">If you're pulling a real HTTPS/CDN source instead</div>
+        <p>The example repo ships <code>demo-content/hls-http-proxy.js</code> for exactly that case &mdash; it does
+          the HTTPS handshake to the origin itself (Node's TLS stack handles 1.3 fine) and re-serves the whole
+          playlist tree to the BM-SC over plain HTTP, rewriting the origin URLs in the manifests so segment
+          requests come back through it too.</p>
+      </div>
+
+      <h3>Describe the session as an xMB template</h3>
+      <p>An xMB template is just JSON: one <code>service</code>, one or more <code>sessions</code>. The shipped
+        <code>demo-content/rtve-24h.json</code> is a good starting reference; copy it and point
+        <code>applicationEntryPointURL</code> at your own server:</p>
+      <div class="codeWrap">
+        <div class="codeLabel">demo-content/my-content.json</div>
+        <pre><code>{
+  "service": {
+    "serviceClass": "urn:example:live-tv",
+    "serviceNames": ["My local demo"],
+    "serviceLanguages": ["eng"],
+    "receiveOnlyMode": true,
+    "serviceAnnouncementMode": "SACH"
+  },
+  "sessions": [
+    {
+      "sessionType": "Application",
+      "maxBitrate": 4000000,
+      "fecEnabled": false,
+      "mbmsBearer": {
+        "tmgiMcc": "901", "tmgiMnc": "56",
+        "tmgiServiceId": <span class="tok">20</span>,
+        "mcastAddr": "239.255.0.1", "port": 2153,
+        "tsi": <span class="tok">3</span>, "serviceAreaCode": 1, "cTeid": <span class="tok">2</span>,
+        "mmeSmPeers": "127.0.0.1:2123"
+      },
+      "application": {
+        "ingestMode": "Pull",
+        "applicationEntryPointURL": "http://127.0.0.1:8899/manifest.m3u8",
+        "applicationServiceDescription": "application/vnd.apple.mpegurl"
+      }
+    }
+  ]
+}</code></pre>
+      </div>
+      <div class="callout gotcha">
+        <div class="kicker">Keep tsi / cTeid / tmgiServiceId distinct</div>
+        <p>The ROM SACH (the always-on announcement channel) reserves <code>service_id&nbsp;0</code> and its own
+          <code>tsi</code> (see <code>conf/bmsc.conf</code>'s <code>[rom_sach]</code> block). The shipped
+          <code>rtve-24h.json</code> example uses <code>tsi:&nbsp;1</code>. If you plan to run more than one
+          session, or run this alongside the shipped example, give each its own <code>tsi</code>,
+          <code>cTeid</code>, and <code>tmgiServiceId</code> &mdash; two sessions sharing any of the three will
+          silently misbehave rather than fail loudly. <code>mcastAddr</code>/<code>port</code> must match
+          <code>mbms-gw.conf</code>'s own <code>m1u_multi_addr</code> (<code>239.255.0.1</code> in the shipped
+          config) &mdash; the port (<code>2153</code>) is this tutorial's established M1-U/GTP-U convention.</p>
+      </div>
+
+      <h3>Load and activate it</h3>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>cd ~/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial/demo-content
+node load-demo.js my-content.json
+<span class="cmt"># -&gt; service created  id=svc-1</span>
+<span class="cmt"># -&gt; Application session created  id=sess-1</span></code></pre>
+      </div>
+      <p>Loading only <em>describes</em> the session &mdash; it doesn't broadcast anything yet. Activate it from
+        the portal's xMB tab, or directly:</p>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>curl -u admin:&lt;AUTH_TOKEN&gt; -X PUT \
+  -H "Content-Type: application/json" -d '{"state":"Active"}' \
+  --max-time 65 \
+  http://127.0.0.1:8080/api/xmb/services/svc-1/sessions/sess-1</code></pre>
+      </div>
+      <p>Give this call up to a minute: activating makes the BM-SC synchronously construct a real FLUTE
+        transmitter and, for a Pull session, fetch the manifest &mdash; fast on a warm cache, considerably slower
+        on the first fetch. A slow response is not the same as a failed one.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="verify">
+      <div class="phaseHead"><span class="phaseNum">09</span><h2 class="phaseTitle">Verify, then watch</h2></div>
+      <p class="phaseDek">Confirm each hop before assuming the last one is the problem &mdash; the chain is long
+        enough that "no video" could mean six different things.</p>
+
+      <ol class="steps">
+        <li><div class="stepTitle">MBMS-GW is forwarding real content, not just the SACH</div>
+          <p><code>tail -f ~/.local/state/mbms-broadcast-tutorial/MBMS-GW.log</code> &mdash; small (&sim;600&ndash;1100
+            byte) packets every few seconds are just the announcement channel; full <code>1460</code>-byte packets
+            at a high, steady rate on your session's <code>cTeid</code> are the actual video.</p>
+        </li>
+        <li><div class="stepTitle">The modem is decoding cleanly</div>
+          <p>In the modem's log, look for <code>MBMS dedicated cell</code> in the MIB line, and
+            <code>MCH TOTAL ERRORS 0</code> repeating. Any nonzero error count here means the RF loopback itself
+            has a problem &mdash; go back to step 05 before looking further downstream.</p>
+        </li>
+        <li><div class="stepTitle">The client received the service announcement</div>
+          <p><code>SA file sa.multipart.gzip (TOI N) has been received</code> in the client's log, followed
+            (once your session activates) by <code>Setting delivery type HLS</code> and a live stream of
+            <code>ContentStream: ... has been received</code> lines for your actual segments.</p>
+        </li>
+        <li><div class="stepTitle">The client's API reports the service</div>
+          <div class="codeWrap"><div class="codeLabel">bash</div><pre><code>curl http://10.80.0.2:3020/client-api/services</code></pre></div>
+          <p>Should return your service with <code>"protocol":"HLS"</code> and a <code>flute_info</code> field
+            matching your template's <code>mcastAddr</code>/<code>port</code>/<code>tsi</code>.</p>
+        </li>
+        <li><div class="stepTitle">Watch it</div>
+          <p>Open <strong>http://10.80.0.2:3000</strong> &mdash; the player, running inside the receive
+            namespace.</p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="teardown">
+      <div class="phaseHead"><span class="phaseNum">10</span><h2 class="phaseTitle">Tear down</h2></div>
+      <div class="codeWrap">
+        <div class="codeLabel">bash</div>
+        <pre><code>sudo ~/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial/receive-netns.sh stop
+~/rt-mbms-examples/scripts/tmux/mbms-broadcast-tutorial/transmit.sh --stop</code></pre>
+      </div>
+      <p>The receive-side teardown deletes the whole <code>mbms-rx</code> namespace and its veth; the transmit-side
+        stop signals every process it started by name, escalating to <code>SIGKILL</code> after a few seconds, and
+        waits out the EPC's SCTP socket before returning &mdash; both are safe to re-run if something was already
+        stopped.</p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section class="phase" id="troubleshoot">
+      <div class="phaseHead"><h2 class="phaseTitle">Troubleshooting index</h2></div>
+      <div class="matrixWrap">
+        <table class="matrix">
+          <tr><th>Symptom</th><th>Cause</th><th>Where</th></tr>
+          <tr><td>Ninja: <code>loading 'build.ninja': No such file</code></td><td>rt-mbms-tx uses Makefiles, not Ninja</td><td>Step 02</td></tr>
+          <tr><td>CMake: missing <code>boost_random</code> component</td><td>System Boost 1.90 vs. cpprestsdk built for 1.83</td><td>Step 00 / 02</td></tr>
+          <tr><td>BM-SC CMake stops on a missing package</td><td>One of the xMB-C dependency packages</td><td>Step 03</td></tr>
+          <tr><td>Modem log: <code>duplicate entry for zmqrx</code></td><td>Bridge installed in two module search paths</td><td>Step 05 (cosmetic)</td></tr>
+          <tr><td><code>Error: received handshake message out of context</code></td><td>Node offering TLS 1.3 to GnuTLS/libmicrohttpd</td><td>Step 06</td></tr>
+          <tr><td><code>mbms_modem_tun never appeared</code></td><td>Cell-sync took longer than the 20s wait</td><td>Step 07</td></tr>
+          <tr><td>Client: <code>set_option: No such device</code>, aborts</td><td>Client started before the TUN was up</td><td>Step 07</td></tr>
+          <tr><td>Content received but never reaches the player</td><td>Kernel drops loopback-sourced multicast on the TUN</td><td>Step 07 (nftables rule)</td></tr>
+          <tr><td>Portal: refuses to start</td><td>Missing <code>AUTH_TOKEN</code> in <code>.env</code></td><td>Step 04</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <footer class="endnote">
+      Every command and log line above was produced by actually running this stack, in this order, on a fresh
+      checkout &mdash; not transcribed from the individual repos' own READMEs.
+    </footer>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  var links = Array.prototype.slice.call(document.querySelectorAll('.tocLink'));
+  var sections = links.map(function (l) {
+    return document.querySelector(l.getAttribute('href'));
+  });
+  function onScroll() {
+    var y = window.scrollY + 120;
+    var current = sections[0];
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i] && sections[i].offsetTop <= y) current = sections[i];
+    }
+    links.forEach(function (l) {
+      l.classList.toggle('active', current && l.getAttribute('href') === '#' + current.id);
+    });
+  }
+  document.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+
+</body>
+</html>
