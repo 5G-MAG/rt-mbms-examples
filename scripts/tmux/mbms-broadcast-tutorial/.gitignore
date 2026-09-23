@@ -6,5 +6,7 @@ soapy-zmq-bridge/
 *.log
 *.crash
 conf/*.state
-tools/ul-feeder
 __pycache__/
+# Regenerated demo media (DASH/HLS segments dropped by the encoder into the watchfolder for the
+# BM-SC to pick up) -- large, transient, rebuilt every run. Not source, do NOT commit.
+demo-content/watchfolder/

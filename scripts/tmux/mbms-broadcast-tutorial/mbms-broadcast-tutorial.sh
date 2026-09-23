@@ -176,7 +176,7 @@ trap cleanup EXIT
 if [ "$NEED_SUDO" = 1 ]; then
   require_cmd sudo
   echo "Some functions need root -- authenticating with sudo once..."
-  sudo -v || die "sudo authentication failed"
+  sudo -n true 2>/dev/null || sudo -v || die "sudo authentication failed"
   ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &   # keep-alive
   SUDO_KEEPALIVE_PID=$!
 fi

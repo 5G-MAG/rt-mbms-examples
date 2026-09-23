@@ -1,5 +1,5 @@
 {
-  "description": "Demo xMB template: broadcast a live HLS stream over MBMS. One Application session in Pull mode -- the BM-SC fetches the HLS manifest + segments and FLUTE-delivers them. IMPORTANT: the entry-point URL points at the local hls-http-proxy (start it first: node hls-http-proxy.js), because the BM-SC's libcurl+GnuTLS cannot pull RTVE's TLS1.3/HTTP2 CDN directly. Load, then Activate the session in the portal's xMB tab.",
+  "description": "Demo xMB template: broadcast a live HLS stream over MBMS. One Application session in Pull mode -- the BM-SC fetches the HLS manifest + segments directly from RTVE's CDN and FLUTE-delivers them. Load, then Activate the session in the portal's xMB tab. (A local hls-http-proxy.js exists in this directory as a fallback: some libcurl builds -- specifically ones using GnuTLS as the TLS backend -- fail this CDN's TLS1.3/HTTP2 handshake with 'received handshake message out of context'; if that recurs, point applicationEntryPointURL below at the proxy instead and start it with `node hls-http-proxy.js`.)",
 
   "service": {
     "serviceClass": "urn:example:live-tv",
@@ -18,12 +18,12 @@
       "mbmsBearer": {
         "tmgiMcc": "901",
         "tmgiMnc": "56",
-        "tmgiServiceId": 16,
+        "tmgiServiceId": 17,
         "mcastAddr": "239.255.0.1",
         "port": 2153,
         "tsi": 1,
         "serviceAreaCode": 1,
-        "cTeid": 1,
+        "cTeid": 52428,
         "mmeSmPeers": "127.0.0.1:2123"
       },
 

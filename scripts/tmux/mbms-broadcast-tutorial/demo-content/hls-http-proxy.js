@@ -42,8 +42,25 @@ function fetchUpstream(pathname, cb, depth = 0) {
 }
 
 const server = http.createServer((req, res) => {
+  // fetchUpstream's callback can fire more than once: the response callback
+  // (line 37) can succeed and start streaming, and *afterwards* the same
+  // ClientRequest can still emit its own 'error' (e.g. the upstream socket
+  // resets mid-segment-transfer) -- that used to call res.writeHead(502) on
+  // a response that had already sent headers, crashing the whole process
+  // with ERR_HTTP_HEADERS_SENT and taking every other in-flight request
+  // down with it. Guard so only the first callback (success or error) acts.
+  let handled = false;
   fetchUpstream(req.url, (err, up) => {
-    if (err) { res.writeHead(502); res.end('proxy error: ' + err.message); return; }
+    if (handled) {
+      if (err) console.error(`proxy: late error for ${req.url} after response already started: ${err.message}`);
+      return;
+    }
+    handled = true;
+    if (err) {
+      if (!res.headersSent) { res.writeHead(502); res.end('proxy error: ' + err.message); }
+      else res.destroy();
+      return;
+    }
     const ct = up.headers['content-type'] || '';
     const isPlaylist = req.url.split('?')[0].endsWith('.m3u8') || ct.includes('mpegurl');
     if (isPlaylist) {
@@ -56,12 +73,19 @@ const server = http.createServer((req, res) => {
         res.writeHead(up.statusCode, { 'Content-Type': ct || 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-cache' });
         res.end(rewritten);
       });
+      up.on('error', (e) => { if (!res.headersSent) { res.writeHead(502); res.end('upstream error: ' + e.message); } else res.destroy(); });
     } else {
       res.writeHead(up.statusCode, { 'Content-Type': ct || 'application/octet-stream' });
       up.pipe(res);
+      up.on('error', () => res.destroy());
     }
   });
 });
+
+// A crash in one request's callback must not take the whole proxy down --
+// every in-flight and future segment/playlist fetch depends on this process
+// staying up.
+process.on('uncaughtException', (e) => console.error('proxy: uncaught exception (ignored):', e && e.stack || e));
 
 server.listen(PORT, '127.0.0.1', () =>
   console.log(`HLS HTTP proxy:  http://127.0.0.1:${PORT}  ->  https://${ORIGIN}   (Ctrl-C to stop)`)

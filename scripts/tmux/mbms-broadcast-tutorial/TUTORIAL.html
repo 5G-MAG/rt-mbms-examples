@@ -1023,10 +1023,13 @@ const agent = new https.Agent({ cert, key, ca, rejectUnauthorized, keepAlive: tr
           <div class="stepTitle">Start the transmit side</div>
           <div class="codeWrap"><div class="codeLabel">bash</div><pre><code>./transmit.sh</code></pre></div>
           <p>Prompts for your sudo password once (srsepc needs root for its TUN interface), then launches, in
-            order: EPC, a small <code>ul-feeder</code> helper (answers the eNB's own uplink ZMQ requests with
-            zero-sample bursts so its downlink-only radio stays paced &mdash; without it the eNB either blocks
-            forever or free-runs and floods the receiver), eNB, MBMS-GW, BM-SC, and the portal. Logs land in
+            order: EPC, eNB, MBMS-GW, BM-SC, and the portal. Logs land in
             <code>~/.local/state/mbms-broadcast-tutorial/&lt;Name&gt;.log</code>.</p>
+          <p>Earlier versions of this tutorial also launched a small <code>ul-feeder</code> helper alongside the
+            eNB, to answer its own uplink ZMQ requests with zero-sample bursts (this eNB has no real uplink &mdash;
+            nothing else would ever answer them). That's no longer needed: the ZMQ radio driver itself now
+            zero-fills and paces correctly when nothing answers its uplink socket, so there's nothing left for a
+            separate helper process to do.</p>
         </li>
         <li>
           <div class="stepTitle">Start the receive side</div>

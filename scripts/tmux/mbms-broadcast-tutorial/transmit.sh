@@ -29,10 +29,6 @@ SRSEPC="${SRSEPC:-$TX_DIR/build/srsepc/src/srsepc}"
 SRSENB="${SRSENB:-$TX_DIR/build/srsenb/src/srsenb}"
 MBMSGW="${MBMSGW:-$GW_DIR/build/mbms-gw/mbms-gw}"
 BMSC="${BMSC:-$BMSC_DIR/build/bmsc/bmsc}"
-# Uplink sample feeder: answers the eNB's ZMQ rx sample-requests on :2001 so its
-# downlink-only radio can clock and stay paced. See tools/ul-feeder.cpp.
-UL_FEEDER="${UL_FEEDER:-$SCRIPT_DIR/tools/ul-feeder}"
-UL_FEEDER_ENDPOINT="${UL_FEEDER_ENDPOINT:-tcp://*:2001}"
 
 EPC_CONF="${EPC_CONF:-epc.conf}"
 ENB_CONF="${ENB_CONF:-enb_baseline.conf}"
@@ -56,7 +52,6 @@ SUDO_EPC="${SUDO_EPC:-sudo}"; SUDO_ENB="${SUDO_ENB:-}"; SUDO_GW="${SUDO_GW:-}"
 # "Name|WorkingDir|Command|pause|sudo"
 COMPONENTS=(
   "EPC|$CONF|$SRSEPC $EPC_CONF|$STAGE_PAUSE|$SUDO_EPC"
-  "UL-Feeder|$CONF|$UL_FEEDER $UL_FEEDER_ENDPOINT|1|"
   "eNB|$CONF|$SRSENB $ENB_CONF|1|$SUDO_ENB"
   "MBMS-GW|$CONF|$MBMSGW $GW_CONF|1|$SUDO_GW"
   "BM-SC|$CONF|$BMSC $BMSC_CONF|1|"
@@ -74,17 +69,17 @@ require_exec() { [ -x "$1" ] || die "not executable: $1 (build it, or set its pa
 # `sudo ./receive-netns.sh stop`, which deletes the whole netns.
 stop_stack() {
   # SIGTERM everything (srsepc is root -> sudo).
-  for b in srsenb ul-feeder mbms-gw bmsc; do
+  for b in srsenb mbms-gw bmsc; do
     pkill -x "$b" 2>/dev/null && echo "  $b"
   done
   pkill -f 'node --env-file=.env server.js' 2>/dev/null && echo "  portal (server.js)"
   pgrep -x srsepc >/dev/null 2>&1 && { sudo pkill -x srsepc 2>/dev/null && echo "  srsepc (root)" || echo "  srsepc: run 'sudo pkill -x srsepc'"; }
   # Wait for them to die; escalate to SIGKILL at 4s (some catch SIGTERM).
   for i in 1 2 3 4 5 6 7 8; do
-    left=""; for b in srsepc srsenb ul-feeder mbms-gw bmsc; do pgrep -x "$b" >/dev/null 2>&1 && left=1; done
+    left=""; for b in srsepc srsenb mbms-gw bmsc; do pgrep -x "$b" >/dev/null 2>&1 && left=1; done
     [ -z "$left" ] && break
     if [ "$i" = 4 ]; then
-      for b in srsenb ul-feeder mbms-gw bmsc; do pkill -9 -x "$b" 2>/dev/null; done
+      for b in srsenb mbms-gw bmsc; do pkill -9 -x "$b" 2>/dev/null; done
       pgrep -x srsepc >/dev/null 2>&1 && sudo pkill -9 -x srsepc 2>/dev/null
     fi
     sleep 1
@@ -111,13 +106,6 @@ fi
 command -v node >/dev/null 2>&1 || die "'node' not found (Portal is Node.js)"
 [ -d "$CONF" ] || die "config dir not found: $CONF"
 require_exec "$SRSEPC"; require_exec "$SRSENB"; require_exec "$MBMSGW"; require_exec "$BMSC"
-# ul-feeder: build on demand if the binary is missing (needs libzmq dev headers).
-if [ ! -x "$UL_FEEDER" ] && [ -f "$UL_FEEDER.cpp" ]; then
-  echo "Building ul-feeder..."
-  g++ -std=c++17 "$UL_FEEDER.cpp" -o "$UL_FEEDER" $(pkg-config --cflags --libs libzmq) \
-    || die "failed to build ul-feeder ($UL_FEEDER.cpp) -- need libzmq3-dev"
-fi
-require_exec "$UL_FEEDER"
 [ -f "$PORTAL_DIR/server.js" ] || die "not found: $PORTAL_DIR/server.js"
 [ -f "$PORTAL_DIR/.env" ]      || echo "WARNING: $PORTAL_DIR/.env missing -- portal needs AUTH_TOKEN."
 
@@ -131,7 +119,7 @@ trap cleanup EXIT
 if [ "$NEED_SUDO" = 1 ]; then
   command -v sudo >/dev/null 2>&1 || die "'sudo' not found (EPC needs root)"
   echo "Some functions need root -- authenticating with sudo once..."
-  sudo -v || die "sudo authentication failed"
+  sudo -n true 2>/dev/null || sudo -v || die "sudo authentication failed"
   ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) & SUDO_KEEPALIVE_PID=$!
 fi
 
