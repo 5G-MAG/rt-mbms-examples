@@ -47,6 +47,8 @@ if netns_exists; then echo "  [up]   netns $NETNS"; else echo "  [down] netns $N
 check_tcp "modem API"   "$RX_ADDR" "$MODEM_API_PORT"
 check_tcp "client API"  "$RX_ADDR" "$CLIENT_API_PORT"
 check_tcp "application" "$RX_ADDR" "$APP_PORT"
+    # The player's Manifest URL box starts empty, so print what to paste into it.
+    echo "  player stream   : $(broadcast_presentation_url)"
 
 sib=$(curl -s -m 3 "http://$RX_ADDR:$MODEM_API_PORT/modem-api/sib_info" 2>/dev/null || true)
 if [[ -n "$sib" ]]; then

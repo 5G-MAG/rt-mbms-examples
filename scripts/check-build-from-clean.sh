@@ -27,7 +27,12 @@ IMAGE=ubuntu:26.04
 BRANCH=feature/mbms-broadcast-demo
 QUICK=0
 EXAMPLES_CHECKOUT=""
-WORK=${WORK:-$(mktemp -d)}
+# Not mktemp's default of /tmp: this clones ten repositories and builds them, which is several
+# gigabytes, and /tmp is commonly a tmpfs sized well under that (7.5G here, shared with whatever
+# else is running -- a run failed with "no access, or empty repository" on the modem clone that
+# was really ENOSPC). /var/tmp is the standard place for large, longer-lived temporary files and
+# lives on a real filesystem. TMPDIR still wins if the caller sets one.
+WORK=${WORK:-$(mktemp -d "${TMPDIR:-/var/tmp}/check-build-from-clean.XXXXXX")}
 mkdir -p "$WORK" || { echo "cannot create $WORK" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
@@ -82,7 +87,11 @@ clone() {
             return 0
         fi
     else
-        echo "FAILED (no access, or empty repository)"
+        # Both attempts failed. Print git's own last line rather than guessing why: a run once
+        # reported "no access" for what was actually the disk filling up, which sent the reader
+        # looking at permissions.
+        echo "FAILED"
+        git clone --quiet "$@" "git@github.com:5G-MAG/$repo.git" "$parent/$repo" 2>&1 | tail -2 | sed 's/^/        /'
         return 1
     fi
 }
@@ -166,10 +175,7 @@ b() {
 b tx       /src/rt-mbms/rt-mbms-tx                   "cmake -S . -B build && cmake --build build -j2"
 b gw       /src/rt-mbms/rt-mbms-gw                   "cmake -S . -B build && cmake --build build -j2"
 b bmsc     /src/rt-mbms/rt-mbms-bmsc                 "cmake -S . -B build && cmake --build build -j2"
-# -DCMAKE_POLICY_VERSION_MINIMUM=3.5: lib/srsran opens with cmake_minimum_required(VERSION 2.6) and
-# CMake 4 refuses a minimum below 3.5. Kept identical to the modem row in the demo README, so this
-# checks the documented command rather than a private one.
-b modem    /src/rt-mbms/rt-mbms-modem                "cmake -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build -j2"
+b modem    /src/rt-mbms/rt-mbms-modem                "cmake -S . -B build && cmake --build build -j2"
 b client   /src/rt-mbms/rt-mbms-client               "cmake -S . -B build && cmake --build build -j2"
 b app      /src/rt-mbms/rt-mbms-application          "npm install"
 b provider /src/rt-mbms/rt-mbms-application-provider "npm install"

@@ -79,23 +79,14 @@ Where the less obvious ones come from:
 ### 2. The components
 
 Clone and build each of these. They are independent repositories with their own READMEs; the build
-command is repeated here only so you can see the whole job at once. All seven are on 5G-MAG.
-
-**Which branch:** the destination for all of this work is `main` in every repository. Until the
-merges land, four repositories carry the work on the interim branch `feature/mbms-broadcast-demo`
-(rt-mbms-tx, rt-mbms-bmsc, rt-mbms-client, rt-mbms-application-provider) and the other three
-(rt-mbms-modem, rt-mbms-gw, rt-mbms-application) are used unchanged. So: clone
-`feature/mbms-broadcast-demo` where it exists, the default branch where it does not, and once the
-merges are done a plain `git clone` of each repository is enough. `check-build-from-clean.sh` falls
-back in exactly that order and prints the branch it used for each component, which is also the
-quickest way to see how far the merges have got.
+command is repeated here only so you can see the whole job at once. All eight are on 5G-MAG.
 
 | Component | Repository | Build |
 |---|---|---|
 | EPC + eNB | [rt-mbms-tx](https://github.com/5G-MAG/rt-mbms-tx) | `cmake -S . -B build && cmake --build build -j$(nproc)` |
 | MBMS-GW | [rt-mbms-gw](https://github.com/5G-MAG/rt-mbms-gw) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
 | BM-SC | [rt-mbms-bmsc](https://github.com/5G-MAG/rt-mbms-bmsc) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
-| Modem | [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem) | `git submodule update --init --recursive && cmake -S . -B build -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && cmake --build build -j$(nproc)` |
+| Modem | [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
 | Client | [rt-mbms-client](https://github.com/5G-MAG/rt-mbms-client) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
 | Application (player UI) | [rt-mbms-application](https://github.com/5G-MAG/rt-mbms-application) | `npm install` |
 | Application Provider (portal) | [rt-mbms-application-provider](https://github.com/5G-MAG/rt-mbms-application-provider) | `npm install` |
@@ -103,17 +94,14 @@ quickest way to see how far the merges have got.
 
 Clone each with its submodules, or run `git submodule update --init --recursive` afterwards:
 the BM-SC carries rt-libflute, libmpdpp and rt-mbms-tx, the client carries rt-libflute,
-rt-common-shared and gzip-hpp, the MBMS-GW carries rt-mbms-tx, and the modem carries srsRAN at
-`lib/srsran`. A checkout without them fails at configure time complaining about a missing
+rt-common-shared and gzip-hpp, the MBMS-GW carries rt-mbms-tx, and the modem carries
+rt-common-shared. A checkout without them fails at configure time complaining about a missing
 subdirectory rather than about the submodule.
 
-**Why the modem needs `-DCMAKE_POLICY_VERSION_MINIMUM=3.5`:** its `lib/srsran` submodule opens with
-`cmake_minimum_required(VERSION 2.6)`, and CMake 4 (4.2.3 on Ubuntu 26.04) refuses a minimum below
-3.5, stopping at configure time with *Compatibility with CMake < 3.5 has been removed from CMake*.
-The flag is a caller-side workaround, not a fix: the fix is to raise that line in
-[5G-MAG/srsRAN](https://github.com/5G-MAG/srsRAN) (branch `fembms`, `CMakeLists.txt` line 33), which
-is outside this demo's set of repositories. rt-mbms-tx carried the identical line and was fixed in
-place, which is why its build command above needs no flag. On CMake 3.x neither is needed.
+The modem's srsRAN is not a submodule: it is tracked in the repository, under `lib/srsran`. The
+receiver's PHY changes (wideband PMCH, the 0.37 kHz numerology, the Rel-19 time-interleaving work)
+live in those files, so they are versioned with the modem that depends on them rather than pinned
+from elsewhere.
 
 **Building on a machine with little memory:** the BM-SC and the client each compile large
 translation units. `-j$(nproc)` on a 14 GB machine already running another demo was killed by the
@@ -170,6 +158,35 @@ not, so a fresh checkout runs with no content at all.
 
 If the repositories are not under `$HOME/Repos`, set `REPOS_ROOT` at the top of `env.sh`;
 every other path is derived from it.
+
+### 6. Testing work that has not merged yet
+
+Everything above describes the **stable** layout: the default branch of each repository. That is
+deliberate, so these instructions stay correct once outstanding work merges. It also means that
+while a change is still under review, the branch these instructions name is not the branch under
+test, and the two will disagree.
+
+To test unmerged work, check the relevant branch out in **every** repository that has it, not just
+the one whose change you are interested in. The components are built against each other, and the
+transmit and receive sides have to agree about the PMCH layout, so a mixture of branches produces
+failures that read as defects in whichever component happens to break first.
+
+Taking `feature/mbms-broadcast-demo` as the example:
+
+```bash
+for d in rt-mbms/rt-mbms-tx rt-mbms/rt-mbms-gw rt-mbms/rt-mbms-bmsc rt-mbms/rt-mbms-modem \
+         rt-mbms/rt-mbms-client rt-mbms/rt-mbms-application rt-mbms/rt-mbms-application-provider \
+         rt-mbms/rt-mbms-examples rt-pws-cbc; do
+    git -C ~/Repos/"$d" checkout feature/mbms-broadcast-demo 2>/dev/null \
+        && git -C ~/Repos/"$d" pull --recurse-submodules \
+        && git -C ~/Repos/"$d" submodule update --init --recursive
+done
+```
+
+The branch does not exist in every repository, which is why the checkout is allowed to fail: a
+repository without it is used at its default branch. `check-build-from-clean.sh` resolves branches
+the same way and prints which one it used for each component, so its output is the quickest way to
+see what a given branch actually covers.
 
 ### Checking the build the way someone else will see it
 
@@ -233,6 +250,20 @@ When it finishes:
 - **modem API**: <http://10.80.0.2:3010/modem-api/>, **client API**: <http://10.80.0.2:3020/client-api/>
 
 ### What "it worked" looks like
+
+**Seeing the video takes one manual step.** Open the player UI, paste the client's own
+presentation URL into its **Manifest URL** box and press **Load**. That box starts empty and
+`Load` does nothing until it has a URL, so a first run looks like a dead player when nothing is
+actually wrong. `start-all.sh` prints the exact URL at the end of its output; it is the client
+republishing what it received over the air:
+
+```
+http://10.80.0.2:3020/xmb-app-manifest-<session-id>/stream.m3u8
+```
+
+With it playing, the player's own metrics say whether the picture came over the air: **segment
+source `5G-BC`** rather than unicast, a resolution of 640x360 for this demo's encode, and a
+current time that advances in real time.
 
 Transmit-side logs are in `run/logs/`; the receive side keeps its own in
 `~/.local/state/mbms-broadcast-tutorial/` (that is `receive-netns.sh`'s own location, which it

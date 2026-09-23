@@ -53,10 +53,17 @@ MBMS Broadcast demo is up.
 
   player UI    : http://$RX_ADDR:$APP_PORT/application   (the default player matches LIVE_FORMAT=$LIVE_FORMAT)
   cell broadcast: http://$RX_ADDR:$APP_PORT/cellbroadcast
-  portal       : $PORTAL_URL                         (xMB, RAN and Emergency Alerts tabs)
+  portal       : $PORTAL_URL                         (xMB and RAN tabs)
+  alerts (CBC) : ${CBC_URL:-http://$CBC_HOST:$CBC_PORT}
   origin       : http://$MEDIA_HOST:$MEDIA_PORT/$(live_presentation_path)
   modem API    : http://$RX_ADDR:$MODEM_API_PORT/modem-api/
   client API   : http://$RX_ADDR:$CLIENT_API_PORT/client-api/
+
+  To see the video: open the player UI, paste this into its "Manifest URL" box and press Load.
+  The box starts empty, and Load does nothing until it has a URL. This is the client's own
+  cache of what it received over the air, which is why the player reports segment source 5G-BC:
+
+    $(broadcast_presentation_url)
 
 $(print_portal_credentials)
 

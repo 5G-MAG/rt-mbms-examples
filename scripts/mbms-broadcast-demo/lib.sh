@@ -125,6 +125,23 @@ cbc_api() {
     _service_api "$CBC_URL" "$CBC_AUTH" "$@"
 }
 
+# Where the receiving client republishes what it got over the air, which is what the player in
+# the application UI has to be pointed at. The client serves its reception cache on its own API
+# port, under a directory named after the xMB session (the BM-SC names the objects that way), so
+# this needs the session id recorded at provisioning time. Falls back to the session directory
+# pattern with no id when no session has been provisioned yet.
+broadcast_presentation_url() {
+    local sid presentation
+    sid="$(cat "$STATE_DIR/session_id" 2>/dev/null)"
+    presentation="stream.m3u8"
+    [[ "$LIVE_FORMAT" == "hls" ]] || presentation="stream.mpd"
+    if [[ -n "$sid" ]]; then
+        echo "http://$RX_ADDR:$CLIENT_API_PORT/xmb-app-manifest-$sid/$presentation"
+    else
+        echo "http://$RX_ADDR:$CLIENT_API_PORT/xmb-app-manifest-<session-id>/$presentation"
+    fi
+}
+
 # The manifest this demo distributes, relative to the origin's document root.
 live_presentation_path() {
     if [[ "$LIVE_FORMAT" == "hls" ]]; then
