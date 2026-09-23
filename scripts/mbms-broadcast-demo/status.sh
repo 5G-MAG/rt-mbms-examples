@@ -76,5 +76,5 @@ if [[ -f "$STATE_DIR/session_id" && -f "$STATE_DIR/service_id" ]]; then
     portal_api GET "/api/xmb/services/$svc/sessions/$sess" 2>/dev/null \
         | python3 -m json.tool 2>/dev/null | sed 's/^/    /' || echo "    (portal not reachable)"
 else
-    echo "  none provisioned by this demo (run ./04-provision-live-service.sh)"
+    echo "  none provisioned by this demo (run ./06-provision-live-service.sh)"
 fi

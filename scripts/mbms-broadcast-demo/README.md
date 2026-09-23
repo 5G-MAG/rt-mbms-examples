@@ -25,30 +25,131 @@ one copy of the component start order, the sudo handling and the network namespa
 | `./start-all.sh` | Everything: transmit side, origin, receive side, then the xMB service, activated |
 | `./status.sh` | What is up, plus what the radio and the provisioned session report |
 | `./stop-all.sh` | Stops everything this demo started, encoder and namespace included |
-| `./05-send-alert.sh` | Sends an ETWS/CMAS alert and waits for the modem to report it |
+| `./07-send-alert.sh` | Sends an ETWS/CMAS alert and waits for the modem to report it |
 
 `start-all.sh` clears anything already running first, so it is safe to run twice. Each numbered
-script can also be run on its own (`./02-start-media-server.sh` to restart just the origin, say).
+script can also be run on its own (`./03-start-media-server.sh` to restart just the origin, say).
 
 ## Prerequisites
 
-- The stack already builds. These scripts run what is built; they build nothing.
-- `node`, `ffmpeg`, `python3`, `curl`, and passwordless or cached `sudo` (srsepc needs root for
-  its TUN device and routing; the receive side needs a network namespace).
-- The ZeroMQ software radio needs a SoapySDR `zmqrx` bridge, which is not shipped anywhere:
-  build it from the source in
-  [`../tmux/mbms-broadcast-tutorial/README.md`](../tmux/mbms-broadcast-tutorial/README.md#zeromq-software-radio).
-  `SoapySDRUtil --info | grep "Available factories"` must list `zmqrx`.
-- `rt-mbms-application-provider/.env` with `AUTH_TOKEN` set. The portal refuses to start without
-  it, and these scripts read the host, port and token from that same file so they cannot disagree
-  with the portal about its own credentials.
-- The BM-SC's mTLS certs, as `../tmux/mbms-broadcast-tutorial/conf/README.md` describes.
-- Content is optional. The encoder plays `~/MWC_TV_RADIO/TV_1.mp4` if it is there
-  (`LIVE_SOURCE_MEDIA`), and generates a test pattern with a tone if it is not, so a fresh
-  checkout runs with no content at all.
+These scripts **run** a deployment; they build nothing. Everything below has to exist before
+`./demo up` will get anywhere, and `./demo doctor` checks what it can and names what is missing.
+
+### 1. System packages
+
+The union of what the seven components ask for. Each repository's own README is authoritative for
+its own list; this one exists so the whole job can be seen at once.
+
+```bash
+sudo apt install git build-essential cmake ninja-build pkg-config \
+  libfftw3-dev libmbedtls-dev libboost-all-dev libconfig++-dev libsctp-dev libzmq3-dev \
+  libspdlog-dev libcpprest-dev libssl-dev libwebsocketpp-dev libusb-1.0-0-dev \
+  libgmime-3.0-dev libtinyxml2-dev libmicrohttpd-dev libgnutls28-dev libcurl4-gnutls-dev \
+  libglibmm-2.4-dev libxml++-5.0-dev libsrtp2-dev \
+  libsoapysdr-dev soapysdr-tools \
+  clang-tidy \
+  nodejs npm python3 ffmpeg tmux iproute2 net-tools curl
+```
+
+Where the less obvious ones come from:
+
+- `libzmq3-dev` is the software radio. Both `srsenb` in **rt-mbms-tx** and the SoapySDR bridge the
+  modem receives through are built against it, and without it there is no radio here at all: this
+  demo ships no SDR hardware path.
+- `libmicrohttpd-dev`, `libgnutls28-dev`, `libcurl4-gnutls-dev`, `libglibmm-2.4-dev`,
+  `libxml++-5.0-dev` and `libsrtp2-dev` are the **BM-SC**'s, which asks for each by name through
+  `pkg_check_modules` in `bmsc/CMakeLists.txt` and aborts at configure time without them. Note
+  `glibmm-2.4`, not the newer 2.68 the archive also carries, and `libxml++-5.0`, not 2.6.
+- `libgmime-3.0-dev` and `libtinyxml2-dev` are the **client**'s: it parses the multipart service
+  announcement with GMime and its XML fragments with TinyXML2.
+- `libcpprest-dev` is the REST API in both the **modem** and the **client**.
+- `libsoapysdr-dev` and `soapysdr-tools` are needed to build and then verify the `zmqrx` bridge in
+  step 3; `SoapySDRUtil` comes from the tools package.
+- `clang-tidy` is not optional tooling for the **client**: its `CMakeLists.txt` sets
+  `CMAKE_CXX_CLANG_TIDY` unconditionally, so CMake invokes it on every translation unit and the
+  build stops with `Error running 'clang-tidy': no such file or directory` without it. The
+  **modem** guards the same setting behind `find_program`, so it degrades quietly instead. Found by
+  `check-build-from-clean.sh` on a stock image, having built fine on a development machine that
+  happened to have it installed.
+
+### 2. The components
+
+Clone and build each of these. They are independent repositories with their own READMEs; the build
+command is repeated here only so you can see the whole job at once. All seven are on 5G-MAG, and
+this demo's branch across the set is `feature/mbms-broadcast-demo`.
+
+| Component | Repository | Build |
+|---|---|---|
+| EPC + eNB | [rt-mbms-tx](https://github.com/5G-MAG/rt-mbms-tx) | `cmake -S . -B build && cmake --build build -j$(nproc)` |
+| MBMS-GW | [rt-mbms-gw](https://github.com/5G-MAG/rt-mbms-gw) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
+| BM-SC | [rt-mbms-bmsc](https://github.com/5G-MAG/rt-mbms-bmsc) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
+| Modem | [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem) | `cmake -S . -B build && cmake --build build -j$(nproc)` |
+| Client | [rt-mbms-client](https://github.com/5G-MAG/rt-mbms-client) | `git submodule update --init --recursive && cmake -S . -B build && cmake --build build -j$(nproc)` |
+| Application (player UI) | [rt-mbms-application](https://github.com/5G-MAG/rt-mbms-application) | `npm install` |
+| Application Provider (portal) | [rt-mbms-application-provider](https://github.com/5G-MAG/rt-mbms-application-provider) | `npm install` |
+
+Clone each with its submodules, or run `git submodule update --init --recursive` afterwards:
+the BM-SC carries rt-libflute, libmpdpp and rt-mbms-tx, the client carries rt-libflute,
+rt-common-shared and gzip-hpp, and the MBMS-GW carries rt-mbms-tx. A checkout without them fails
+at configure time complaining about a missing subdirectory rather than about the submodule.
+
+**Building on a machine with little memory:** the BM-SC and the client each compile large
+translation units. `-j$(nproc)` on a 14 GB machine already running another demo was killed by the
+kernel's OOM killer more than once during this work; `-j2` or `-j1` is slower and finishes.
+
+### 3. The ZeroMQ software radio bridge
+
+The eNB transmits I/Q over ZeroMQ and the modem receives through a SoapySDR module registering a
+`zmqrx` driver. **That module is not shipped by any repository and has to be built from source.**
+The complete source, the build line and the reasoning are in
+[the tutorial's README](../tmux/mbms-broadcast-tutorial/README.md#zeromq-software-radio).
+
+```bash
+SoapySDRUtil --info | grep "Available factories"     # must list zmqrx
+```
+
+Without it the modem starts, finds no radio and never syncs, which presents as a receive chain that
+comes up and delivers nothing.
+
+Using real SDR hardware instead: set the eNB's `device_name`/`device_args` in
+`conf/enb_baseline.conf`, drop the modem's `zmqrx` `device_args` in `conf/modem_zmqtest.conf`, and
+no bridge is needed.
+
+### 4. Configuration the scripts do not generate
+
+- **The portal's `.env`**, with `AUTH_TOKEN` set. `rt-mbms-application-provider` refuses to start
+  without it. `start-all.sh` and `status.sh` read it and print the login, so the value belongs
+  there and nowhere else; do not copy it into a tracked file.
+- **The BM-SC's mTLS certificates**, one `openssl` block, described in
+  [`conf/README.md`](../tmux/mbms-broadcast-tutorial/conf/README.md).
+- **Passwordless or cached `sudo`**, for the EPC's TUN device and routing and for the receive
+  side's network namespace. The scripts authenticate once up front.
+
+### 5. Content
+
+Optional. The encoder plays `~/MWC_TV_RADIO/TV_1.mp4` if it is there (`LIVE_SOURCE_MEDIA` in
+`env.sh`, and `channels.json` for the line-up), and generates a test pattern with a tone if it is
+not, so a fresh checkout runs with no content at all.
 
 If the repositories are not under `$HOME/Repos`, set `REPOS_ROOT` at the top of `env.sh`;
-everything else is derived from it.
+every other path is derived from it.
+
+### Checking the build the way someone else will see it
+
+Rebuilding on the machine that already runs the demo cannot answer "can anyone else build this":
+every dependency is already installed there, so an incomplete package list or a stale instruction
+is invisible. `scripts/check-build-from-clean.sh` answers it properly: fresh clones of all seven
+components, a stock container image, and only the packages this README's `apt` line names, which it
+reads out of this file rather than restating.
+
+```bash
+../check-build-from-clean.sh              # everything
+../check-build-from-clean.sh --quick      # skip the two srsRAN-derived builds
+```
+
+It needs `docker` and returns non-zero on any new failure. It does not check the `zmqrx` bridge or
+a running chain: both need a radio, `sudo` and a network namespace, which do not belong in a build
+check.
 
 ## Running it
 
@@ -59,14 +160,21 @@ cd rt-mbms-examples/scripts/mbms-broadcast-demo
 
 This runs, in order:
 
-| # | Script | What it does |
-|---|---|---|
-| 01 | `01-start-transmit.sh` | EPC, eNB, MBMS-GW, BM-SC and the portal, via the tutorial's `transmit.sh`, then waits for each control port |
-| 02 | `02-start-media-server.sh` | The local origin (`media-server.js`) and the looping encoder (`live-encoder.sh`), then waits until the presentation is genuinely playable |
-| 03 | `03-start-receive.sh` | Modem, client and application inside netns `mbms-rx`, via the tutorial's `receive-netns.sh`, then waits for both REST APIs |
-| 04 | `04-provision-live-service.sh` | Creates the xMB service and its Application/Pull session and activates it, which is what puts the content on air |
+| Script | What it does |
+|---|---|
+| `01-start-transmit.sh` | EPC, eNB, MBMS-GW, BM-SC and the portal, via the tutorial's `transmit.sh`, then waits for each control port |
+| `03-start-media-server.sh` | The local origin (`media-server.js`) and the looping encoder (`live-encoder.sh`), then waits until the presentation is genuinely playable |
+| `05-start-client-and-app.sh` | Modem, client and application inside netns `mbms-rx`, via the tutorial's `receive-netns.sh`, then waits for both REST APIs |
+| `06-provision-live-service.sh` | Creates the xMB service and its Application/Pull session and activates it, which is what puts the content on air |
+| `07-send-alert.sh` | Not part of `start-all.sh`: sends an ETWS/CMAS alert and waits for the modem to report it |
 
-Step 02 waiting is not politeness: the BM-SC's Pull ingest resolves the segment list from the
+The numbering is rt-mbs-examples', so the same stage carries the same number and the same name in
+both demos and neither has to be learned twice. The gaps are the stages that demo has and this one
+does not: `00-setup-netns.sh` (here the namespace is created by `receive-netns.sh`, which also
+starts the receive side), `02` (that demo's MBSF/MBSTF, which MBMS has no counterpart to) and `04`
+(its separate RAN stage, where here the eNB comes up with the rest of the transmit side).
+
+The media-server step waiting is not politeness: the BM-SC's Pull ingest resolves the segment list from the
 manifest once, at activation. A session activated against a manifest the encoder has not
 populated yet comes up healthy and delivers nothing.
 
@@ -118,7 +226,7 @@ problem needs more detail than the checks above give:
 | `all_level = debug` | `../tmux/mbms-broadcast-tutorial/conf/mbms-gw.conf` | One line per forwarded M1-U packet, ~13 MB/hour. This is how you count what the MBMS-GW put on each bearer, by C-TEID |
 | `gtpu_level = debug` | `../tmux/mbms-broadcast-tutorial/conf/enb_baseline.conf` | One line per M1-U packet received, ~12 MB/hour. Together with the line above it places a loss between the BM-SC, the MBMS-GW and the eNB, by comparing byte totals per minute |
 
-`MODEM_DIAG=1 ./03-start-receive.sh` restarts just the receive side with the modem's
+`MODEM_DIAG=1 ./05-start-client-and-app.sh` restarts just the receive side with the modem's
 diagnostics on; the two config levels need a transmit-side restart (`./start-all.sh`).
 
 ## Emergency alerts
@@ -127,10 +235,10 @@ Alerts do not travel over the MBMS bearer. They go over the cell's own warning s
 they work whether or not a content session is active.
 
 ```bash
-./05-send-alert.sh --list                       # the alert types the portal accepts
-./05-send-alert.sh etws_test                    # send one, then wait for the modem to report it
-./05-send-alert.sh cmas_severe "Flood warning" "Move to higher ground."
-./05-send-alert.sh --cancel                     # Stop Warning for the active alert
+./07-send-alert.sh --list                       # the alert types the portal accepts
+./07-send-alert.sh etws_test                    # send one, then wait for the modem to report it
+./07-send-alert.sh cmas_severe "Flood warning" "Move to higher ground."
+./07-send-alert.sh --cancel                     # Stop Warning for the active alert
 ```
 
 The script only reports success once the receiving modem actually lists the alert
@@ -152,7 +260,7 @@ Everything is in `env.sh`. The values worth knowing:
 | `DEMO_TMGI_SERVICE_ID` | `21` | Free on this rig: 16 is the BM-SC's own built-in content session, 17 and 20 belong to the two demo-content templates, 0 is the SACH |
 | `DEMO_FEC_ENABLED` | `true` | Required for continuous playback here, see below. The scheme itself is the BM-SC's choice (`xmb.content_fec_scheme`, set to `raptor`); this is only the per-session toggle of TS 26.348 Table 5.4-1 |
 
-`04-provision-live-service.sh` also writes the session it provisions to
+`06-provision-live-service.sh` also writes the session it provisions to
 `run/state/local-live.json`, in the same template format the portal's own "Load template..."
 button and `demo-content/load-demo.js` accept. So the exact session this demo creates can be
 loaded by hand from the UI, and a variant can be built by editing `env.sh` and re-running the

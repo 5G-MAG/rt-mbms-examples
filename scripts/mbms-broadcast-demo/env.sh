@@ -9,7 +9,24 @@
 # All paths default to this development machine's checkout layout. If the repositories live
 # somewhere else, edit REPOS_ROOT below; everything else follows from it.
 
+# Every path below is a default, and every one can be overridden. Three ways, in the order
+# they are applied:
+#
+#   1. local.env beside this file, if it exists. Gitignored, so machine-specific paths live
+#      there rather than in a tracked script. Copy local.env.example and edit.
+#   2. Environment variables, which win over local.env: REPOS_ROOT=/srv/code ./demo up
+#   3. Editing the defaults here, which is the option that makes your checkout diverge.
+#
+# The layout the defaults assume is one development machine's habit ($HOME/Repos, with the
+# MBMS repositories grouped under rt-mbms/) and nothing more. If your checkouts are somewhere
+# else, or scattered, set the roots or the individual directories.
+
 set -a
+
+# Machine-specific overrides, if the operator has written any. Read before every default
+# below, so it can set the roots as well as individual directories. Gitignored on purpose.
+_DEMO_ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ -f "$_DEMO_ENV_DIR/local.env" ] && . "$_DEMO_ENV_DIR/local.env"
 
 # ------------------------------------------------------------------------------------
 # Repository locations
@@ -177,7 +194,7 @@ DEMO_MAX_BITRATE="${DEMO_MAX_BITRATE:-4000000}"
 # holds, one hole truncated the player's playlist to two entries and playback stalled.
 DEMO_FEC_ENABLED="${DEMO_FEC_ENABLED:-true}"
 
-# How long 03-start-receive.sh waits for the modem and client REST APIs after
+# How long 05-start-client-and-app.sh waits for the modem and client REST APIs after
 # receive-netns.sh returns. receive-netns.sh does its own wait for the modem's TUN device
 # (bandwidth-blind cell search, slow on a loaded host) and that timeout lives in that
 # script; this one only covers the APIs coming up behind it.

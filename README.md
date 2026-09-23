@@ -1,13 +1,84 @@
 <h1 align="center">MBMS Examples</h1>
+
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Under_Development-yellow" alt="Under Development">
-  <img src="https://img.shields.io/github/v/tag/5G-MAG/rt-mbms-examples?label=version" alt="Version">
-  <img src="https://img.shields.io/badge/License-5G--MAG%20Public%20License%20(v1.0)-blue" alt="License">
+  Runnable end-to-end demos and test tooling for the LTE-based 5G Terrestrial Broadcast
+  (FeMBMS / MBMS) reference tools: a full Broadcast deployment from EPC to UE, with content
+  flowing.
 </p>
+
+<p align="center">
+  <img alt="Status: under development"
+    src="https://img.shields.io/badge/Status-Under_Development-yellow">
+  <a href="https://github.com/5G-MAG/rt-mbms-examples/releases"><img alt="Version"
+    src="https://img.shields.io/github/v/tag/5G-MAG/rt-mbms-examples?label=Version&sort=semver"></a>
+  <a href="License"><img alt="5G-MAG Public License v1.0"
+    src="https://img.shields.io/badge/License-5G--MAG%20PL%20v1.0-blue"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.5g-mag.com/reference-tools">Project page</a> &nbsp;&middot;&nbsp;
+  <a href="https://github.com/5G-MAG/rt-mbms-examples/issues">Issues</a> &nbsp;&middot;&nbsp;
+  <a href="https://www.5g-mag.com/contributing">Contributing</a>
+</p>
+
+---
+
+## At a glance
+
+|  |  |
+|---|---|
+| **Provides** | An end-to-end MBMS Broadcast demo, a local live content origin, an emergency-alert path and the older tmux tutorial |
+| **Role** | Integration: it starts and provisions the other components, and builds none of them |
+| **Built with** | Bash, Node.js and Python |
+| **Works with** | [rt-mbms-tx](https://github.com/5G-MAG/rt-mbms-tx), [rt-mbms-gw](https://github.com/5G-MAG/rt-mbms-gw), [rt-mbms-bmsc](https://github.com/5G-MAG/rt-mbms-bmsc), [rt-mbms-modem](https://github.com/5G-MAG/rt-mbms-modem), [rt-mbms-client](https://github.com/5G-MAG/rt-mbms-client), [rt-mbms-application](https://github.com/5G-MAG/rt-mbms-application), [rt-mbms-application-provider](https://github.com/5G-MAG/rt-mbms-application-provider) and [rt-libflute](https://github.com/5G-MAG/rt-libflute) |
+| **Part of** | [5G-MAG Reference Tools](https://www.5g-mag.com/reference-tools) |
 
 ## Introduction
 
-Example projects that make use of other 5G-MAG repositories such as rt-mbms-client and rt-mbms-modem.
+Example projects that make use of other 5G-MAG repositories, or add functionality for testing and
+developing MBMS features.
+
+**Start here:** the [Broadcast demo](scripts/mbms-broadcast-demo/README.md) brings up the whole
+stack from a cold start and runs content end to end over the radio interface, with no SDR hardware.
+Its Prerequisites section is the complete list of what to install, clone and build first; this
+repository builds none of those components, it runs what you have built.
+
+## Install dependencies
+
+This repository builds nothing of its own, but the demo it runs needs a toolchain and seven other
+components built first. The complete list, with the `apt` line and the build command for each
+component, is in
+[the Broadcast demo's Prerequisites](scripts/mbms-broadcast-demo/README.md#prerequisites).
+
+In short: a C++ toolchain with CMake; Boost, FFTW, mbedTLS and ZeroMQ for the radio; GMime,
+TinyXML2, libmicrohttpd, GnuTLS, libcurl, glibmm-2.4 and libxml++-5.0 for the BM-SC and the client;
+Node.js for the two web applications; and `ffmpeg` for the live origin.
+
+One piece is not packaged anywhere and has to be built from source: a SoapySDR `zmqrx` bridge, so
+the modem can receive the eNB's ZeroMQ transmission. The full source is in
+[the tutorial's README](scripts/tmux/mbms-broadcast-tutorial/README.md#zeromq-software-radio).
+
+## Downloading
+
+```bash
+git clone https://github.com/5G-MAG/rt-mbms-examples.git
+cd rt-mbms-examples
+```
+
+This repository has no build step of its own. What it needs installed and built is in the
+[Broadcast demo's Prerequisites](scripts/mbms-broadcast-demo/README.md#prerequisites).
+
+## Building
+
+Nothing to build. `./demo` starts components you have already built elsewhere and fails with the
+name of anything it cannot find.
+
+The local content origin under `scripts/mbms-broadcast-demo/media-server.js` is a dependency-free
+Node script, so it needs no `npm install` either.
+
+## Installing
+
+There is no install step. Everything here is run from the working copy.
 
 ## Running the demo
 
@@ -87,6 +158,23 @@ plays or how it is encoded, set these before `./demo up`:
 LIVE_SOURCE_MEDIA=~/MWC_TV_RADIO/RADIO.mp4 LIVE_STREAM_NAME=radio_live ./demo up
 ```
 
+## Tutorials
+
+Three, and the Broadcast demo is the place to start:
+
+- **[The whole MBMS Broadcast stack](scripts/mbms-broadcast-demo/README.md)** -- brings up the EPC,
+  eNB, MBMS-GW, BM-SC, modem, client and both web applications from a cold start, over a ZeroMQ
+  software radio with no SDR hardware, and runs content end to end. It shows what a healthy run
+  looks like so you can tell whether it worked, how to send an ETWS/CMAS emergency alert and
+  confirm the modem received it, and why the delivery is protected with Raptor FEC.
+- **[mbms-broadcast-tutorial](scripts/tmux/mbms-broadcast-tutorial/README.md)** -- the same chain
+  one tmux window per function, plus
+  [`TUTORIAL.html`](scripts/tmux/mbms-broadcast-tutorial/TUTORIAL.html), a from-scratch walkthrough
+  across every repository, and [`DEMO_RUNBOOK.md`](scripts/tmux/mbms-broadcast-tutorial/DEMO_RUNBOOK.md)
+  for the dedicated-mode, Time Interleaving and CAS-muting scenarios.
+- **[FLUTE ffmpeg](flute-ffmpeg/)** -- rt-mbms-client development without the modem or any radio at
+  all.
+
 ### FLUTE ffmpeg
 
 The goal of this example project is to provide a tool that enables rt-mbms-client development without the need for the
@@ -109,3 +197,13 @@ just the FLUTE-direct shortcut the flute-ffmpeg example above uses). See that di
 walkthrough across all ten repos. It needs one small piece that isn't shipped anywhere -- a
 SoapySDR `zmqrx` bridge device plugin bridging the eNB's ZeroMQ transmit output into the modem's
 usual `SoapySDR::Device::make()` radio path -- both docs above include the full working source.
+
+## Contributing
+
+Contributions are welcome. How to raise an issue, fork the repository and open a pull request, and
+the Contributor License Agreement required before code can be merged, are described at
+<https://www.5g-mag.com/contributing>.
+
+## License
+
+See [License](License).

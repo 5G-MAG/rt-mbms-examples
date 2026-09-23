@@ -24,10 +24,10 @@ log "=== 1/4 transmit side (EPC, eNB, MBMS-GW, BM-SC, portal) ==="
 ./01-start-transmit.sh
 
 log "=== 2/4 local live origin (media server + looping encoder) ==="
-./02-start-media-server.sh
+./03-start-media-server.sh
 
 log "=== 3/4 receive side (modem, client, application) in netns $NETNS ==="
-./03-start-receive.sh
+./05-start-client-and-app.sh
 
 log "=== 4/4 xMB services for the on-air channels: create and activate ==="
 # One xMB service and one Application/Pull session per on-air channel, each on its own MBMS
@@ -40,7 +40,7 @@ while IFS=$'\t' read -r ch_id ch_name ch_stream ch_tmgi ch_tsi ch_addr ch_port; 
         DEMO_TSI="$ch_tsi" \
         DEMO_MCAST_ADDR="$ch_addr" \
         DEMO_MCAST_PORT="$ch_port" \
-        ./04-provision-live-service.sh
+        ./06-provision-live-service.sh
 done < <(onair_rows)
 
 # For the summary below: PORTAL_URL is set by portal_creds, and the stage scripts each ran
@@ -61,7 +61,7 @@ MBMS Broadcast demo is up.
 $(print_portal_credentials)
 
   ./status.sh                 what is up, and what the radio and the client report
-  ./05-send-alert.sh          send an ETWS/CMAS alert and confirm the modem receives it
+  ./07-send-alert.sh          send an ETWS/CMAS alert and confirm the modem receives it
   ./stop-all.sh               stop everything this demo started
 
 Logs: this demo's own in $LOG_DIR, the stack's own in $STACK_LOG_DIR.

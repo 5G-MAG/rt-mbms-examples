@@ -7,9 +7,9 @@
 # signalling (SIB10/11/12 via the MME's SBc-AP bridge), not over the MBMS bearer, so it
 # works whether or not a content session is active.
 #
-#   ./05-send-alert.sh [alert-type] [headline] [description]
-#   ./05-send-alert.sh --cancel                  send a Stop Warning for the active alert
-#   ./05-send-alert.sh --list                    print the alert types the portal accepts
+#   ./07-send-alert.sh [alert-type] [headline] [description]
+#   ./07-send-alert.sh --cancel                  send a Stop Warning for the active alert
+#   ./07-send-alert.sh --list                    print the alert types the portal accepts
 #
 # Alert types come from rt-mbms-application-provider/lib/cap.js.
 set -euo pipefail
@@ -43,7 +43,7 @@ HEADLINE="${2:-MBMS demo test alert}"
 DESCRIPTION="${3:-Test warning message issued by the MBMS broadcast demo. No action required.}"
 
 printf '%s\n' "${ALERT_TYPES[@]}" | grep -qx "$ALERT_TYPE" \
-    || die "unknown alert type '$ALERT_TYPE'. Run ./05-send-alert.sh --list"
+    || die "unknown alert type '$ALERT_TYPE'. Run ./07-send-alert.sh --list"
 
 body=$(python3 - "$ALERT_TYPE" "$HEADLINE" "$DESCRIPTION" <<'PY'
 import json, sys
