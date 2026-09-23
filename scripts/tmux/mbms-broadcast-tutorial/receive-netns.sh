@@ -47,6 +47,19 @@ SOAPY_DIR="${SOAPY_SDR_PLUGIN_PATH:-$UH/soapy-zmq-bridge}"
 LOG="$UH/.local/state/mbms-broadcast-tutorial"
 MODEM_NS_CONF="$LOG/modem_zmqtest.netns.conf"
 
+# The modem's per-subframe diagnostics (MCHDIAG, TI_DIAG_*, SYNC_OFFSET_DIAG, ...) are
+# opt-in through its own environment variables, and they are expensive to leave on: one
+# line per subframe per diagnostic wrote 353 KB/s, 4.25 GB in a 3h16m run, which fills a
+# disk on any demo left running and buries the modem's real log lines. Off by default;
+# MODEM_DIAG=1 turns the whole set back on for a session that is actually debugging the
+# MCH/TI path, which is what they exist for.
+MODEM_DIAG="${MODEM_DIAG:-0}"
+if [ "$MODEM_DIAG" = "1" ]; then
+  MODEM_DIAG_ENV="CAS_CE_DIAG=1 MCH_DIAG=1 PMCH_TI_DIAG=1 CPU_MIGRATION_DIAG=1 SYNC_FAIL_DIAG=1 SYNC_OFFSET_DIAG=1 CAS_TIMING_DIAG=1"
+else
+  MODEM_DIAG_ENV=""
+fi
+
 nsrun() { # nsrun <Name> <workdir> <command string>  -- run as the unprivileged user
   local name="$1" workdir="$2"; shift 2
   ip netns exec "$NS" runuser -u "$USER_NAME" -- \
@@ -180,7 +193,7 @@ start() {
   # enough to push cell-search/re-acquisition into a non-yielding real-time busy stretch.
   # Replaced with a more surgical fix: Phy::set_cell() now scales cfo_loop_bw_ref down
   # for mixed-mode cells instead of disabling feedback outright (see Phy.cpp comment).
-  nsrun_root Modem  "$CONF"    "env CAS_CE_DIAG=1 MCH_DIAG=1 PMCH_TI_DIAG=1 CPU_MIGRATION_DIAG=1 SYNC_FAIL_DIAG=1 SYNC_OFFSET_DIAG=1 CAS_TIMING_DIAG=1 '$MODEM' -c '$MODEM_NS_CONF' -b 10 -l 2 -s 4"
+  nsrun_root Modem  "$CONF"    "env $MODEM_DIAG_ENV '$MODEM' -c '$MODEM_NS_CONF' -b 10 -l 2 -s 4"
 
   # The modem creates $TUN_DEV but leaves it DOWN with no address. Wait for it,
   # then bring it up, give it CLIENT_IFACE (the client binds its FLUTE receiver to

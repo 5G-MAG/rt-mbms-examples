@@ -4,8 +4,11 @@ Three scenarios, meant to be run one after another. Each one only changes a
 couple of lines in `conf/enb_baseline.conf` / `conf/modem_zmqtest.conf` on top
 of the same base setup, so you tear down, edit, and relaunch between them.
 
-Portal AUTH_TOKEN (Basic auth, user `admin`) for the API calls below:
-`AUTH_TOKEN from rt-mbms-application-provider/.env (not tracked)` (from `rt-mbms-application-provider/.env`).
+Portal credentials (Basic auth) for the API calls below: user `AUTH_USER` (default
+`admin`) and the token `AUTH_TOKEN`, both from `rt-mbms-application-provider/.env`,
+which is not tracked. Do not paste the token into this file or any other tracked
+file: `mbms-broadcast-demo`'s `start-all.sh` and `status.sh` print the live values,
+read from that `.env`, so there is no reason to write them down.
 
 ---
 

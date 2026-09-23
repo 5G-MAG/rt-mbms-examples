@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "The channel line-up this demo publishes, kept deliberately identical in name, source clip and",
+    "stream directory to rt-mbs-examples' and rt-dvb-i-examples' own channels.json, so the three",
+    "demos show the same content under the same names.",
+    "",
+    "Per channel:",
+    "  id        stable identifier, used in log lines and in the xMB service name",
+    "  name      what the service is called wherever a name is shown",
+    "  source    file under $CONTENT_ROOT that the looping live encoder plays",
+    "  stream    directory the encoder writes under the media origin's public/ directory",
+    "  type      linear or radio, the DVB-I demo's own vocabulary. A radio channel is encoded",
+    "            audio-only: see live-encoder.sh for why that matters over a broadcast bearer",
+    "  onAir     true if this channel is carried over the air as its own xMB service. The others",
+    "            are still encoded and served by the origin, so every demo offers the same four",
+    "            channels; they are simply not broadcast here.",
+    "  tmgiServiceId, tsi, mcastAddr, mcastPort",
+    "            the MBMS bearer this channel's session uses. Required when onAir, and each must",
+    "            be unique across the on-air channels: two sessions sharing a TMGI or a multicast",
+    "            group would collide in the BM-SC and on the air.",
+    "",
+    "One channel is on air, matching the MBS demo, so the two broadcast demos carry the same",
+    "single service. This demo's radio stack does carry two at once -- both were delivered, with",
+    "the modem reporting BLER 0.000 on both MCHs -- so a second channel can be put back on air by",
+    "setting onAir on it; its bearer parameters are already assigned below."
+  ],
+  "channels": [
+    { "id": "mwc-tv-1",  "name": "5G-MAG.tv 1",  "source": "TV_1.mp4",  "stream": "tv_1_live",  "type": "linear", "onAir": true,
+      "tmgiServiceId": 21, "tsi": 4, "mcastAddr": "239.255.0.1", "mcastPort": 2153 },
+    { "id": "mwc-tv-2",  "name": "5G-MAG.tv 2",  "source": "TV_2.mp4",  "stream": "tv_2_live",  "type": "linear", "onAir": false },
+    { "id": "mwc-tv-3",  "name": "5G-MAG.tv 3",  "source": "TV_3.mp4",  "stream": "tv_3_live",  "type": "linear", "onAir": false },
+    { "id": "mwc-radio", "name": "5G-MAG.radio", "source": "RADIO.mp4", "stream": "radio_live", "type": "radio",  "onAir": false,
+      "tmgiServiceId": 22, "tsi": 5, "mcastAddr": "239.255.0.2", "mcastPort": 2155 }
+  ]
+}
