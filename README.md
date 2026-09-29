@@ -31,8 +31,9 @@
 
 ## Introduction
 
-This repository collects example projects that use other 5G-MAG MBMS repositories. It holds one
-example, FLUTE ffmpeg, in [`flute-ffmpeg/`](flute-ffmpeg/).
+This repository collects example projects that use other 5G-MAG MBMS repositories. It holds two:
+FLUTE ffmpeg, in [`flute-ffmpeg/`](flute-ffmpeg/), and a Docker setup for the MBMS client
+components, in [`mbms-client-docker-setup/`](mbms-client-docker-setup/).
 
 ### FLUTE ffmpeg
 
@@ -43,6 +44,14 @@ hls.js.
 
 Installation, building, configuration and running are described in the
 example's [subfolder](https://github.com/5G-MAG/rt-mbms-examples/tree/development/flute-ffmpeg).
+
+### MBMS client Docker setup (work in progress)
+
+Dockerfiles for rt-mbms-modem, rt-mbms-mw and rt-wui, and a `docker-compose.yml` that at present
+starts only the modem container. The modem image clones rt-mbms-modem from GitHub and builds it;
+the container decodes a recorded sample file from a `recordings` folder, which you provide (it is
+not in the repository), and routes the multicast output of its tun interface. The rt-mbms-mw and
+rt-wui services are commented out. The folder has no instructions of its own yet.
 
 ## Contributing
 
