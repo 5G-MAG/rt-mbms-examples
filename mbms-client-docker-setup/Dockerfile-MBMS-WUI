@@ -1,0 +1,11 @@
+# Stage 1: Build Node.js app
+FROM node:20 AS builder
+WORKDIR /opt/rt-wui
+RUN git clone https://github.com/5G-MAG/rt-wui.git . && npm install && node app.js
+
+# Stage 2: Use nginx image
+FROM nginx:latest
+RUN rm /etc/nginx/conf.d/default.conf
+COPY config/5gmag-rt-wui.conf /etc/nginx/conf.d/default.conf
+
+CMD ["nginx", "-g", "daemon off;"]

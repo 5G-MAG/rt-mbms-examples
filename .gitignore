@@ -36,3 +36,4 @@
 build
 cmake-build-debug
 lib/rt-libflute
+/mbms-client-docker-setup/recordings/

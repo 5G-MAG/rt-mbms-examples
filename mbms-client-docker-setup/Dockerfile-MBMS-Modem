@@ -1,0 +1,50 @@
+FROM ubuntu:22.04
+LABEL authors="Daniel Silhavy"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    ssh g++ git \
+    libboost-atomic-dev libboost-thread-dev libboost-system-dev libboost-date-time-dev \
+    libboost-regex-dev libboost-filesystem-dev libboost-random-dev libboost-chrono-dev \
+    libboost-serialization-dev libwebsocketpp-dev openssl libssl-dev ninja-build \
+    libspdlog-dev libmbedtls-dev libboost-all-dev libconfig++-dev libsctp-dev \
+    libfftw3-dev vim libcpprest-dev libusb-1.0-0-dev net-tools smcroute python3-pip \
+    clang-tidy gpsd gpsd-clients libgps-dev \
+    libsoapysdr-dev soapysdr-tools \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install cmake
+RUN apt-get update && apt-get install -y cmake
+
+# Install Python tools
+RUN pip3 install cpplint psutil
+
+# Install BladeRF SDR drivers
+RUN apt install soapysdr-module-bladerf
+RUN bladeRF-install-firmware
+
+# Clone and build the MBMS Modem project
+RUN git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-modem.git /rt-mbms-modem && \
+    cd /rt-mbms-modem && \
+    git submodule update && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_INSTALL_PREFIX=/usr -GNinja .. && \
+    ninja && \
+    ninja install
+
+# Copy entrypoint script
+COPY scripts/entrypoint-modem.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Create fivegmag-rt user
+RUN useradd -m fivegmag-rt
+
+# Set entrypoint (customize as needed)
+# USER fivegmag-rt  # Commented out to run as root for TUN/TAP access
+WORKDIR /rt-mbms-modem
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
