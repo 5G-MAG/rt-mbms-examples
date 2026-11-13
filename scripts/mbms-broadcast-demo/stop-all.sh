@@ -33,6 +33,8 @@ for pid in $(pgrep -f "ffmpeg .*$MEDIA_ROOT" 2>/dev/null || true); do
     kill -TERM "$pid" 2>/dev/null || true
 done
 kill_pidfile media-server
+# Positioning assistance (09-start-positioning.sh), if it was started: its session lives on the BM-SC that is about to stop.
+[[ -f "$PID_DIR/pos-publisher.pid" || -f "$PID_DIR/pos-receiver.pid" ]] && ./stop-positioning.sh || true
 kill_pidfile cbc
 
 if netns_exists; then

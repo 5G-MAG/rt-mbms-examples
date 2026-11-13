@@ -217,4 +217,32 @@ DEMO_FEC_ENABLED="${DEMO_FEC_ENABLED:-true}"
 # script; this one only covers the APIs coming up behind it.
 MODEM_API_WAIT_SECS="${MODEM_API_WAIT_SECS:-90}"
 
+# ------------------------------------------------------------------------------------
+# Positioning assistance (option 1 of the broadcast positioning proposal: the relative
+# transmit delay of each cell travels in an assistance document, FLUTE-delivered in its own
+# MBMS session, while one SFN'ed SIB16 gives the network time). Optional, started by
+# 09-start-positioning.sh. The document describes a virtual four-cell network around the one
+# eNB the radio has, and the UE's RSTDs are computed, so what is live is the delivery of the
+# document and the network time from SIB16. The code is positioning-assistance/ at the root of
+# this repository.
+#
+# The session uses its own TMGI, TSI, multicast group and C-TEID. The C-TEID must differ from
+# the content session's and must be listed in pmch1.session_teids of enb_baseline.conf
+# ("0xCCCC,0xCCCD"): the eNB gives a PMCH session by C-TEID and the first match wins.
+# ------------------------------------------------------------------------------------
+BPS_DIR="${BPS_DIR:-$(cd "$DEMO_ROOT/../../positioning-assistance" && pwd)}"
+FLUTE_RECEIVER="${FLUTE_RECEIVER:-$REPOS_ROOT/rt-libflute/build/examples/flute-receiver}"
+# The modem's TUN address inside the receive namespace, where the FLUTE receiver binds.
+RX_TUN_ADDR="${RX_TUN_ADDR:-192.168.180.10}"
+POS_TMGI_SERVICE_ID="${POS_TMGI_SERVICE_ID:-22}"
+POS_TSI="${POS_TSI:-5}"
+POS_MCAST_ADDR="${POS_MCAST_ADDR:-239.255.0.2}"
+POS_MCAST_PORT="${POS_MCAST_PORT:-2155}"
+POS_C_TEID="${POS_C_TEID:-52429}"            # 0xCCCD
+POS_FILE_PATH="${POS_FILE_PATH:-positioning/assistance.json}"
+POS_INTERVAL="${POS_INTERVAL:-5}"            # seconds between documents
+POS_VALIDITY="${POS_VALIDITY:-90}"           # seconds a document stays usable
+POS_RX_DIR="${POS_RX_DIR:-$RUN_DIR/positioning/rx}"
+LEAP_SECONDS="${LEAP_SECONDS:-18}"           # GPS - UTC, as in sib.conf.mbsfn
+
 set +a
