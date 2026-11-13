@@ -42,5 +42,5 @@ Over the demo stack: see "Positioning assistance" in `scripts/mbms-broadcast-dem
 In that demo the document and the network time are live and the RSTDs are computed from a known position, on a ZMQ software radio with one eNB.
 
 Verification: 42 unit tests, and reset-rig runs of the demo in which the UE's fixes had rmse 9.1 to 10.0 m against 9.7 to 9.8 m claimed, every fix
-within two claimed sigma. Known limits: PRS generation and ToA measurement are missing; the UE finds the session by configuration, not from the
-service announcement; the BM-SC does not send file objects of about 1.5 to 3 kB with application-layer FEC on, so the session runs with FEC off.
+within two claimed sigma. Known limits: PRS generation and ToA measurement are missing; the BM-SC does not send file objects of about
+1.5 to 3 kB with application-layer FEC on, so the session runs with FEC off.
