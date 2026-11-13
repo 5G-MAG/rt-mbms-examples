@@ -1,0 +1,12 @@
+Option 1 (one SFN'ed SIB16, RTD in the document): 4 cells, 2D fix with known height, synthetic layout 6 to 12 km apart
+ noise ns  rtd err ns  drift err ns/s  elapsed s  drift model |    n fail   rmse m   p50 m   p95 m  claimed 1s m
+       30           0               0          0         True |  300    0     14.2    11.2    25.5          10.2
+       30          20               0          0         True |  300    0     15.6    12.3    26.4          12.1
+       30         100               0          0         True |  300    0     35.0    25.6    63.8          34.2
+      100          20               0          0         True |  300    0     35.3    27.3    62.4          33.4
+       30          20             0.5        600         True |  300    0     97.6    72.8   183.4          98.4
+       30          20             0.5        600        False |  298    2    955.3   739.4  1662.0          98.7
+failure reasons: {'solver did not converge': 2}
+
+SIB16 alignment: UE-time error after the fix, 1000 draws: min -249.0 ns, max 0.0 ns (label truncation gives -249..0 ns, delay rounded to 1 ns)
+Option 2 RTD from per-cell SIB16 labels: worst error 248 ns over 2000 draws (two truncations: < 250 ns)

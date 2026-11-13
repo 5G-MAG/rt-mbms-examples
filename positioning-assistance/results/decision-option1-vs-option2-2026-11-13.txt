@@ -1,0 +1,20 @@
+Option 1: RTD in the assistance document (SFN'ed SIB16)
+ monitor err ns  drift err ns/s  doc age s |   rmse m    p95 m
+             10             0.1         10 |     14.0     27.0
+             10             0.1         60 |     14.6     26.4
+             10             0.5         60 |     17.2     30.9
+             20             0.5         60 |     17.9     31.0
+             20             0.5        600 |    100.5    195.3
+             50             0.5         60 |     23.0     44.8
+
+Option 2: RTD from each cell's own SIB16 label (labels fresh, age 0)
+ stamp err ns  RTD sigma ns |   rmse m    p95 m   eNB time source
+            0           102 |     36.5     63.2   ideal (truncation only)
+           25           108 |     38.3     66.4   GNSS-locked, tens of ns
+          100           174 |     59.4    106.9   GNSS-locked, poor holdover
+         1000          1418 |    480.1    881.7   1 us
+      1000000       1414214 |   6236.3   7440.6   host clock, ms (this lab)
+
+Not modelled: that option 2 needs the UE to decode SIB16 from every assistance cell, in cells it may hear only weakly, each once
+per SI period (2.56 s for period 256); that option 1 needs a monitoring receiver and a delivery path that keeps the document
+current; PRS and SIB16 SNR differences; eNB clock holdover; RSTD noise other than the fixed 30 ns used here.
