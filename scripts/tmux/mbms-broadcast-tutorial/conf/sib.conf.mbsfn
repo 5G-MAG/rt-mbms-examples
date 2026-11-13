@@ -9,7 +9,13 @@ sib1 =
     //   For MBMS-dedicated cells UEs tune to receive services, not for unicast camping,
     //   so a very permissive value (-70) is also reasonable.
     q_rx_lev_min = -60;
-    si_window_length = 20;
+    // si_window_length: SI-window in ms (TS 36.331 clause 5.2.3b): the window of SI message n starts at
+    // x = (n-1)*si_window_length ms into its period and lasts si_window_length ms. On a dedicated carrier SI is only
+    // sent in the cell acquisition subframe (subframe 0 of frames with nf mod 4 = 0 for 25 PRB or more, TS 36.211
+    // clause 6.6.4.1), so every window must contain such a frame. With 20 ms the second SI message below starts at
+    // frame 2 and its window (frames 2 and 3) holds none: that message is never sent. 40 ms puts it at frame 4.
+    // rt-mbms-tx reports a window without a usable subframe at start-up.
+    si_window_length = 40;
     sched_info =
     (
         {
@@ -249,23 +255,31 @@ sib15 =
 };
 
 #####################################################################
-# sib16 — GPS/UTC time (TS 36.331 s6.3.1, Rel-11)
+# sib16 — UTC and GPS time (TS 36.331 clause 6.3.1)
 #
-# time_info_utc: seconds since 00:00:00 UTC on 1 January 1900
-#   To compute: python3 -c "import datetime; \
-#     epoch=datetime.datetime(1900,1,1); \
-#     now=datetime.datetime.utcnow(); \
-#     print(int((now-epoch).total_seconds()))"
-# leap_seconds: current TAI-UTC offset in seconds (37 as of 2024)
+# time_info_utc: UTC seconds in units of 10 ms since 00:00:00 on 1 January 1900, so the field is seconds * 100.
+#   To compute: python3 -c "import time; print(int((time.time() + 2208988800) * 100))"
+#   A fixed value goes stale at once; use dynamic = true below.
+# leap_seconds: GPS time - UTC, in seconds (clause 6.3.1: "UTC and GPS time are related i.e. GPS time -leapSeconds = UTC
+#   time"). It is not TAI - UTC. 18 s since 2017-01-01; check the current value in IERS Bulletin C before relying on it.
 # local_time_offset: offset from UTC in units of 15 minutes (e.g. 8 = UTC+2h)
 # Include 16 in sib1::sched_info::si_mapping_info.
+#
+# dynamic (rt-mbms-tx extension, no clause governs this switch): rebuild SIB16 before each SI-window with the host clock's
+#   time of the SFN boundary at or immediately after the end of that window (clauses 5.2.3b and 6.3.2). The host clock is
+#   milliseconds-accurate at best; a GNSS-locked eNB should stamp from the radio's timestamps instead.
+# time_reference_info: with dynamic = true, also send timeReferenceInfo-r15, the same time at 0.25 us granularity
+#   (clause 6.3.2). uncertainty (0..12) is the number of low-order refQuarterMicroSeconds bits that may be inaccurate; omit it
+#   if unknown.
 #####################################################################
 sib16 =
 {
+    dynamic = true;
+    time_reference_info = { uncertainty = 12; };
     time_info =
     {
-        time_info_utc    = 3989280000L;  // approx 2026-06-28 — update before deployment
-        leap_seconds     = 37;           // TAI-UTC as of 2024; check IERS for current value
-        local_time_offset = 4;           // UTC+1h (4 units of 15 min); adjust for your timezone
+        time_info_utc    = 400358242773L; // 2026-11-13, seconds * 100; replaced at each SI-window while dynamic = true
+        leap_seconds     = 18;            // GPS - UTC
+        local_time_offset = 4;            // UTC+1h (4 units of 15 min); adjust for your timezone
     };
 };
