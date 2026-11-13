@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import posixpath
 import time
 import urllib.request
 
@@ -31,7 +32,7 @@ def cmd_publish(a) -> None:
     if not session:
         portal = PortalClient(a.portal_url, a.portal_user, a.portal_password)
         spec = SessionSpec("Positioning assistance", tmgi_service_id=a.tmgi_service_id, tsi=a.tsi, mcast_addr=a.mcast, port=a.port,
-                           c_teid=a.c_teid, fec_enabled=a.fec)
+                           c_teid=a.c_teid, fec_enabled=a.fec, display_base_url=posixpath.dirname(a.path))
         svc, session = portal.create_push_session(spec)
         portal.set_state(svc, session, "Active")
         print(f"session {session} on service {svc} active", flush=True)

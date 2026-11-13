@@ -449,17 +449,19 @@ FLUTE-delivered in its own MBMS session, while a single SFN'ed SIB16 gives the n
 
 ```bash
 ./start-all.sh                 # the broadcast demo, as above
-./09-start-positioning.sh      # publisher (own Files/Push session, TMGI 22) and the FLUTE receiver in the UE namespace
+./09-start-positioning.sh      # publisher (own Files/Push session, TMGI 22, announced as an application service)
 ./10-run-positioning-ue.sh 60  # UE side: fixes against the synthetic UE position, for 60 s
 ./stop-positioning.sh          # or ./stop-all.sh
 ```
 
-What is live and what is synthetic: the document travels over the air and the network time comes from the modem's SIB16 anchor
+What is live and what is synthetic: the document is found from the service announcement and travels over the air, and the network time comes from the modem's SIB16 anchor
 (`/modem-api/sib_info`: `sib16.anchor`, `rx_clock`). The demo radio has one eNB, so the document describes a virtual four-cell network and the
 RSTDs the UE would measure are computed from a known position and the true RTDs. The code is `positioning-assistance/` at the root of this
 repository (`BPS_DIR`).
 
 Requirements: the transmitter and modem builds with SIB16 time support (rt-mbms-tx and rt-mbms-modem `feature/sib16-time-reference`),
-the eNB configuration lists the second session's C-TEID (`pmch1.session_teids = 0xCCCC,0xCCCD`, in this repository), and rt-libflute's
-`flute-receiver` is built (`FLUTE_RECEIVER`). The session has application-layer FEC off: with it on the BM-SC does not send objects of
+the eNB configuration lists the second session's C-TEID (`pmch1.session_teids = 0xCCCC,0xCCCD`, in this repository), the BM-SC announces
+a Files session's Display Base URL as the broadcast base pattern (rt-mbms-bmsc `feature/announce-files-sessions`), and rt-mbms-client builds a stream
+for a file service (rt-mbms-client `feature/generic-application-service`): the UE then finds the session in the service announcement and reads the
+document from the client's HTTP server. The session has application-layer FEC off: with it on the BM-SC does not send objects of
 about 1.5 to 3 kB, and the document is repeated every few seconds anyway.

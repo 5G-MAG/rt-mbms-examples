@@ -300,7 +300,8 @@ class Xmb(unittest.TestCase):
         _Fake.push_status = 204
 
     def test_provisioning_sequence(self):
-        spec = SessionSpec("PNT assistance", tmgi_service_id=22, tsi=5, mcast_addr="239.255.0.2", port=2155, c_teid=0xCCCD)
+        spec = SessionSpec("PNT assistance", tmgi_service_id=22, tsi=5, mcast_addr="239.255.0.2", port=2155, c_teid=0xCCCD,
+                           display_base_url="positioning")
         portal = PortalClient(self.url, "admin", "secret")
         svc, sess = portal.create_push_session(spec)
         self.assertEqual((svc, sess), ("svc-9", "sess-9"))
@@ -311,7 +312,7 @@ class Xmb(unittest.TestCase):
                                    ("PUT", "/api/xmb/services/svc-9/sessions/sess-9")])
         session_body = _Fake.log[1][2]
         self.assertEqual(session_body["sessionType"], "Files")
-        self.assertEqual(session_body["files"], {"ingestMode": "Push", "carouselMode": "none"})
+        self.assertEqual(session_body["files"], {"ingestMode": "Push", "carouselMode": "none", "displayBaseURL": "positioning"})
         self.assertEqual(session_body["mbmsBearer"]["cTeid"], 0xCCCD)
         self.assertTrue(_Fake.log[0][3].startswith("Basic "))
         activate = _Fake.log[3][2]

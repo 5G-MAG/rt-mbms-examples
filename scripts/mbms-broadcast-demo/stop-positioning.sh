@@ -1,12 +1,12 @@
 #!/bin/bash
-# Stops the positioning assistance publisher and its FLUTE receiver and removes the xMB session the publisher created, leaving the
+# Stops the positioning assistance publisher and removes the xMB session the publisher created, leaving the
 # rest of the demo running.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 source env.sh
 source lib.sh
 
-for name in pos-publisher pos-receiver; do
+for name in pos-publisher; do
     pidfile="$PID_DIR/$name.pid"
     if [[ -f "$pidfile" ]]; then
         pid=$(cat "$pidfile" 2>/dev/null)
@@ -17,8 +17,6 @@ for name in pos-publisher pos-receiver; do
         rm -f "$pidfile"
     fi
 done
-# The receiver runs under sudo and runuser; signal it by exact name rather than by a pattern that would match this shell.
-sudo -n pkill -x flute-receiver 2>/dev/null || true
 
 if [[ -f "$STATE_DIR/pos_session" ]] && portal_creds 2>/dev/null; then
     read -r svc sess < "$STATE_DIR/pos_session"

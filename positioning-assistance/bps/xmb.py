@@ -68,6 +68,7 @@ class SessionSpec:
     max_bitrate_bps: int = 1_000_000
     fec_enabled: bool = True
     service_class: str = "urn:example:positioning-assistance"
+    display_base_url: str = ""  # the base URL the UE sees the files under (TS 26.348 V19.0.0 Table 5.4-5); announced as basePattern
 
 
 class PortalClient:
@@ -114,7 +115,8 @@ class PortalClient:
             "mbmsBearer": {"tmgiMcc": spec.tmgi_mcc, "tmgiMnc": spec.tmgi_mnc, "tmgiServiceId": spec.tmgi_service_id,
                            "mcastAddr": spec.mcast_addr, "port": spec.port, "tsi": spec.tsi,
                            "serviceAreaCode": spec.service_area_code, "cTeid": spec.c_teid, "mmeSmPeers": spec.mme_sm_peers},
-            "files": {"ingestMode": "Push", "carouselMode": "none"}})
+            "files": {"ingestMode": "Push", "carouselMode": "none",
+                      **({"displayBaseURL": spec.display_base_url} if spec.display_base_url else {})}})
         return service_id, self._id(sess, "session creation")
 
     def set_state(self, service_id: str, session_id: str, state: str) -> None:

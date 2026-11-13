@@ -231,9 +231,6 @@ MODEM_API_WAIT_SECS="${MODEM_API_WAIT_SECS:-90}"
 # ("0xCCCC,0xCCCD"): the eNB gives a PMCH session by C-TEID and the first match wins.
 # ------------------------------------------------------------------------------------
 BPS_DIR="${BPS_DIR:-$(cd "$DEMO_ROOT/../../positioning-assistance" && pwd)}"
-FLUTE_RECEIVER="${FLUTE_RECEIVER:-$REPOS_ROOT/rt-libflute/build/examples/flute-receiver}"
-# The modem's TUN address inside the receive namespace, where the FLUTE receiver binds.
-RX_TUN_ADDR="${RX_TUN_ADDR:-192.168.180.10}"
 POS_TMGI_SERVICE_ID="${POS_TMGI_SERVICE_ID:-22}"
 POS_TSI="${POS_TSI:-5}"
 POS_MCAST_ADDR="${POS_MCAST_ADDR:-239.255.0.2}"
@@ -242,7 +239,8 @@ POS_C_TEID="${POS_C_TEID:-52429}"            # 0xCCCD
 POS_FILE_PATH="${POS_FILE_PATH:-positioning/assistance.json}"
 POS_INTERVAL="${POS_INTERVAL:-5}"            # seconds between documents
 POS_VALIDITY="${POS_VALIDITY:-90}"           # seconds a document stays usable
-POS_RX_DIR="${POS_RX_DIR:-$RUN_DIR/positioning/rx}"
+# Where the UE reads the document: rt-mbms-client serves the files it receives under the session's Display Base URL.
+POS_DOC_URL="${POS_DOC_URL:-http://$RX_ADDR:$CLIENT_API_PORT/$POS_FILE_PATH}"
 LEAP_SECONDS="${LEAP_SECONDS:-18}"           # GPS - UTC, as in sib.conf.mbsfn
 
 set +a
