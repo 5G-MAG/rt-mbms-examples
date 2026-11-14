@@ -118,6 +118,17 @@ class ModemPrsTests(unittest.TestCase):
         for word in ("latitude", "longitude", "height", "rtd", "valid"):
             self.assertNotIn(word, text)                                 # only PHY information goes down; location and RTD stay in the positioning code
 
+    def test_the_signal_the_time_of_arrival_is_taken_from_goes_down_with_the_assistance(self):
+        self.prs.push(small_doc())
+        self.assertNotIn("signal", _Modem.state["puts"][-1])                    # the PRS of the assistance data is the default and is not stated
+        sync = ModemPrs(self.base, signal="pss_sss")
+        sync.push(small_doc())
+        self.assertEqual(_Modem.state["puts"][-1]["signal"], "pss_sss")
+        self.assertEqual(_Modem.state["puts"][-1]["cells"], ModemPrs.assistance_json(small_doc())["cells"])
+        self.assertFalse(sync.ensure(small_doc()))                              # the modem has exactly that
+        with self.assertRaises(ValueError):
+            ModemPrs(self.base, signal="crs")
+
     def test_push_and_refusal(self):
         self.prs.push(small_doc())
         self.assertEqual(len(_Modem.state["puts"]), 1)

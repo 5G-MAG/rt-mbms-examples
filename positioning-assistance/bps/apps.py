@@ -116,7 +116,7 @@ def cmd_ue(a) -> None:
     rng = np.random.default_rng(3)
     clock, store = NetworkClock(), AssistanceStore()
     positioner = Positioner(clock, store, height_m=lab.UE_ENU[2] + lab.ORIGIN[2])
-    modem_prs = ModemPrs(a.modem_url.rsplit("/", 1)[0], ratio_min=a.prs_ratio_min) if a.measure == "modem" else None
+    modem_prs = ModemPrs(a.modem_url.rsplit("/", 1)[0], ratio_min=a.prs_ratio_min, signal=a.toa_signal) if a.measure == "modem" else None
     end = time.time() + a.seconds
     last_doc = None
     print(f"{'time':>8} {'doc':>11} {'net time - host (ms)':>26} {'error m':>8} {'claimed m':>10}", flush=True)
@@ -189,7 +189,7 @@ def cmd_rig(a) -> None:
 
     cell_cp = _cell_cp(a.cell_cp)
     cell_cfo = _cell_cfo(a.cell_cfo)
-    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs)
+    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs, signal=a.signal)
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.SUBSCRIBE, b"")
@@ -274,6 +274,9 @@ def main() -> None:
     u.add_argument("--prs-ratio-min", type=float, default=9.0,
                    help="with --measure modem: how far a cell's correlation peak must stand out of the background (peak over median, as the modem reports it) "
                         "for the cell to count as detected")
+    u.add_argument("--toa-signal", choices=("prs", "pss_sss"), default="prs",
+                   help="with --measure modem: what the modem takes the time of arrival from, the PRS of the assistance data (default) or the PSS and SSS of each cell's "
+                        "cell acquisition subframe (the proposal's alternative where those subframes are not SFN'ed, slide 13 Note 1)")
     u.add_argument("--snr-db", type=float, default=None,
                    help="with --measure prs: signal to noise ratio per sample of each cell (default 0); with --measure sync: per resource "
                         "element (default 10)")
@@ -289,6 +292,8 @@ def main() -> None:
     r.add_argument("--cp", choices=("extended", "normal"), default="extended", help="the real cell's cyclic prefix (the transmitter's extended_cp)")
     r.add_argument("--snr-db", type=float, default=None, help="add white noise to the stream: Es/N0 per resource element (a PSS or SSS element of the real cell is the reference) at the modem")
     r.add_argument("--snr-file", help="a file holding the Es/N0 in dB (or `off`), read once a second and followed while running; overrides --snr-db")
+    r.add_argument("--signal", choices=("prs", "pss_sss"), default="prs",
+                   help="what an emulated cell sends in its cell acquisition subframe: its PRS (default) or its PSS and SSS (the proposal's alternative where those subframes are not SFN'ed)")
     r.add_argument("--no-real-prs", action="store_true", help="the real cell sends no PRS (the lock reference then holds its PSS and SSS only)")
     r.add_argument("--cell-cfo", action="append", metavar="CELL=HZ", help="an emulated cell's carrier frequency offset against the real cell's (separate oscillators), in Hz (repeatable)")
     r.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended", help="an emulated cell whose cyclic prefix differs from the real cell's (repeatable)")

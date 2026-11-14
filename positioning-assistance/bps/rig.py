@@ -94,7 +94,9 @@ class Mixer:
 
     def __init__(self, cells: list[EmulatedCell], delay_s: Callable[[int, int], float], now_gps_ns: Callable[[], int], real_cell_id: int = 1,
                  n_rb: int = 25, power_db: float = -6.0, lock_blocks: int = 2 * CAS_PERIOD // BLOCK + 2, real_cell_has_prs: bool = True,
-                 min_lock_ratio: float = 8.0, normal_cp: bool = False, snr_db: Optional[float] = None, seed: int = 0):
+                 min_lock_ratio: float = 8.0, normal_cp: bool = False, snr_db: Optional[float] = None, seed: int = 0, signal: str = "prs"):
+        if signal not in ("prs", "pss_sss"):
+            raise ValueError("signal is prs or pss_sss")
         if n_rb != 25:
             raise ValueError("the mixer is written for the 25 PRB demo carrier (cell acquisition every 40 ms, 15.36 Msps stream)")
         self.cells = cells
@@ -116,8 +118,12 @@ class Mixer:
         # What the real cell sends in its cell acquisition subframe that is known here: the PSS and SSS and, if it sends them, its own PRS. Correlating with
         # the PSS and SSS alone is biased by a few nanoseconds by the PRS elements next to them, so the PRS goes into the reference when it is on the air.
         self._lock_ref = self._sync_ref + (upsample2(prs_subframe(real_cell_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) if real_cell_has_prs else 0.0)
-        self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0,
-                                                    normal_cp=normal_cp if c.normal_cp is None else c.normal_cp)) for c in cells}
+        # what an emulated cell sends in its cell acquisition subframe: its PRS, or (signal "pss_sss", the proposal's alternative where those subframes are not
+        # SFN'ed) its PSS and SSS
+        self.signal = signal
+        self._waves = {c.cell_id: upsample2(cas_subframe(c.cell_id, n_rb, normal_cp=normal_cp if c.normal_cp is None else c.normal_cp) if signal == "pss_sss" else
+                                            prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0,
+                                                         normal_cp=normal_cp if c.normal_cp is None else c.normal_cp)) for c in cells}
         self.snr_db = snr_db         # white noise added to the whole stream once locked, for measuring what a receiver does at a given signal to noise ratio
         self._rng = np.random.default_rng(seed)
         self.lock_quality = 0.0       # match of the latest lock attempt over the background

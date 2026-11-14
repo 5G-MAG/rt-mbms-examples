@@ -26,9 +26,14 @@ class ModemRefused(Exception):
 
 
 class ModemPrs:
-    def __init__(self, base_url: str, ratio_min: float = 9.0, sigma_ns: float = 15.0, timeout_s: float = 5.0):
+    def __init__(self, base_url: str, ratio_min: float = 9.0, sigma_ns: float = 15.0, timeout_s: float = 5.0, signal: str = "prs"):
         """`base_url` is the modem's REST root, e.g. http://10.80.0.2:3010/modem-api. `sigma_ns` is the error given to each RSTD: measured live with the rig (8.7, 11.2 and 7.1 ns
-        standard deviation and -5 to -9.5 ns mean error over 32 occasions, 25 PRB, one path), combined in quadrature."""
+        standard deviation and -5 to -9.5 ns mean error over 32 occasions, 25 PRB, one path), combined in quadrature. `signal` is what the modem takes the time of
+        arrival from: "prs" (the PRS of the assistance data) or "pss_sss" (the PSS and SSS of each cell's cell acquisition subframe, the proposal's alternative where
+        those subframes are not SFN'ed, slide 13 Note 1); the value is sent with the assistance data."""
+        if signal not in ("prs", "pss_sss"):
+            raise ValueError("signal is prs or pss_sss")
+        self.signal = signal
         self.base = base_url.rstrip("/")
         self.ratio_min = ratio_min
         self.sigma_ns = sigma_ns
@@ -53,6 +58,12 @@ class ModemPrs:
     def _without_windows(body: dict) -> dict:
         return {**body, "cells": [{k: v for k, v in c.items() if not k.startswith("expected_rstd")} for c in body["cells"]]}
 
+    def _body(self, doc: AssistanceDocument) -> dict:
+        body = self.assistance_json(doc)
+        if self.signal != "prs":
+            body["signal"] = self.signal
+        return body
+
     def _call(self, method: str, path: str, body: Optional[dict] = None):
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.base + path, data=data, method=method, headers={"Content-Type": "application/json"})
@@ -68,7 +79,7 @@ class ModemPrs:
 
     def push(self, doc: AssistanceDocument) -> None:
         """Pushes the PRS information of the document to the modem. Raises ModemRefused with the modem's reason if it will not take it."""
-        body = self.assistance_json(doc)
+        body = self._body(doc)
         status, payload = self._call("PUT", "/prs_assistance", body)
         if status != 200:
             reason = (payload or {}).get("error", f"HTTP {status}") if isinstance(payload, dict) else f"HTTP {status}"
@@ -82,7 +93,7 @@ class ModemPrs:
     def ensure(self, doc: AssistanceDocument) -> bool:
         """Pushes the document's PRS information unless the modem already has exactly that. Returns True if it pushed. A modem that has restarted (no assistance)
         gets it again."""
-        want = json.dumps(self.assistance_json(doc), sort_keys=True)
+        want = json.dumps(self._body(doc), sort_keys=True)
         if want == self._pushed:
             status, payload = self._call("GET", "/prs")
             if status == 200 and isinstance(payload, dict) and payload.get("assistance") is not None:
