@@ -161,6 +161,9 @@ def encode_relative(ref_lla: tuple[float, float, float], lla: tuple[float, float
 
 
 def decode_relative(ref_lla: tuple[float, float, float], rel: dict) -> tuple[float, float, float]:
+    if "arc-second-units" in rel:
+        raise ValueError("arc-second-units is stated: OMA-TS-LPPe V2.0 names its values (as0-0003 .. as0-3) and the text read gives no size for them, so the offsets "
+                         "cannot be read as angles; not supported (a document without it states metres)")
     if rel.get("units") not in _UNIT_M:
         raise ValueError(f"units must be one of cm, dm, m10 or absent, not {rel.get('units')!r}")
     u = _UNIT_M[rel.get("units")]
@@ -228,7 +231,17 @@ def encode_prs_info(p: "Prs") -> dict:
     return out
 
 
+_PRS_INFO_NOT_SUPPORTED = {
+    "prsOccGroupLen-r14": "PRS occasion groups: the muting sequence would count groups of occasions, which this receiver does not model",
+    "prsHoppingInfo-r14": "PRS frequency hopping: the PRS would be on other narrowbands than the ones this receiver correlates",
+    "add-numDL-Frames-r14": "an N_PRS other than 1, 2, 4 or 6 subframes, which this receiver does not model",
+}
+
+
 def decode_prs_info(d: dict) -> "Prs":
+    for key, why in _PRS_INFO_NOT_SUPPORTED.items():
+        if key in d:
+            raise ValueError(f"PRS-Info states {key} ({why}); not supported")
     muting = None
     if "prs-MutingInfo-r9" in d:
         choice = d["prs-MutingInfo-r9"]

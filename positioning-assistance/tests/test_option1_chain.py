@@ -204,6 +204,27 @@ class Chain(unittest.TestCase):
             verdict = AssistanceStore().ingest(json.dumps(env).encode())
             self.assertTrue(verdict.startswith("rejected") and "inter-frequency" in verdict, (key, verdict))
 
+    def test_fields_that_would_change_what_is_measured_are_refused_not_read_wrongly(self):
+        raw = self.pub.publish_once(self.t_last)
+        cases = (("neighbour relative-Location", "arc-second-units", "as0-03", "arc-second-units"),
+                 ("neighbour prsInfo", "prsOccGroupLen-r14", "g2", "occasion groups"),
+                 ("neighbour prsInfo", "prsHoppingInfo-r14", {"nb2-r14": 1}, "frequency hopping"),
+                 ("neighbour prsInfo", "add-numDL-Frames-r14", 8, "N_PRS"),
+                 ("reference prsInfo", "prsOccGroupLen-r14", "g4", "occasion groups"))
+        for where, key, value, reason in cases:
+            env, ie = load(raw)
+            if where == "neighbour relative-Location":
+                ie["neighbours"][0]["relative-Location"][key] = value
+            elif where == "neighbour prsInfo":
+                ie["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"].setdefault("prsInfo", dict(ie["reference"]["referenceCellInfo"]["prsInfo"]))[key] = value
+            else:
+                ie["reference"]["referenceCellInfo"]["prsInfo"][key] = value
+            verdict = AssistanceStore().ingest(json.dumps(env).encode())
+            self.assertTrue(verdict.startswith("rejected") and reason in verdict and "not supported" in verdict, (key, verdict))
+        env, ie = load(raw)
+        ie["neighbours"][0]["relative-Location"]["horizontalUncertainty"] = {"uncShape": {"circle": 10}}
+        self.assertEqual(AssistanceStore().ingest(json.dumps(env).encode()), "accepted")     # information the receiver may leave unused (kept as read)
+
     def test_the_envelope_is_filled_by_the_publisher(self):
         pub = Publisher(self.net, self.mon, lambda body: None, repeat_interval_s=5.0, broadcast_area="Area1", leap_seconds=18)
         env, ie = load(pub.publish_once(self.t_last))
