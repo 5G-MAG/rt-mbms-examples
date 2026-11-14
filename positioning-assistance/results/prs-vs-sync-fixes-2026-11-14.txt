@@ -1,8 +1,0 @@
-lab UE, 30 fixes, one path, no reporting step. PRS 0 dB per sample is 12.5 dB per resource element.
-measurement                                     rmse m  claimed m   max m
-PRS, 0 dB per sample (12.5 dB/RE), sigma 5 ns      0.6        1.4     1.0
-PRS, -10 dB per sample (2.5 dB/RE), sigma 6 ns     1.1        1.7     2.2
-PRS with the TS 36.133 reporting step, 0 dB       10.6       10.2    20.6
-PSS/SSS cancelling, 20 dB per RE                   1.4        1.1     3.0
-PSS/SSS cancelling, 10 dB per RE                   4.4        5.1     9.3
-PSS/SSS cancelling, 0 dB per RE                   14.6       11.1    31.0

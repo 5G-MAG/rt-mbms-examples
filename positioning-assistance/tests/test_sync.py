@@ -6,8 +6,7 @@ import numpy as np
 from bps import lab
 from bps.prs import sync_pbch_core_mask
 from bps.solver import solve_rstd
-from bps.sync import (SYNC_TOA_SIGMA_NS, SyncCell, cas_subframe, measure_rstd_sync, pss_sequence, split_cell_id, sss_indices, sss_sequence,
-                      sync_slot_grid, toa_sigma_ns)
+from bps.sync import cas_subframe, pss_sequence, split_cell_id, sss_indices, sss_sequence, sync_slot_grid
 
 # Independent references.
 # PSS_K: the PSS value is exp(-j pi k / 63); k per N_ID^(2) was read off srsRAN's srsran_pss_generate (rt-mbms-tx lib/src/phy/sync/pss.c,
@@ -156,113 +155,6 @@ class Waveform(unittest.TestCase):
             expected = 62.0 if l in (5, 6) else 0.0
             self.assertAlmostEqual(float(np.sum(np.abs(useful) ** 2)), expected, places=9, msg=f"symbol {l}")
         self.assertEqual(pos, 3840)
-
-
-class Estimator(unittest.TestCase):
-    def test_high_snr_without_interference_floor_is_a_few_ns(self):
-        rng = np.random.default_rng(1)
-        for delay in (3.3e-6, -7.1e-6, 123.456e-6, -250e-6):
-            est = measure_rstd_sync([SyncCell(1, 0.0), SyncCell(2, delay)], 25, 40.0, rng)[0]
-            self.assertAlmostEqual(est, delay, delta=2e-9, msg=str(delay))
-
-    def test_later_arrival_gives_positive_difference(self):
-        rng = np.random.default_rng(2)
-        self.assertGreater(measure_rstd_sync([SyncCell(1, 0.0), SyncCell(2, 5e-6)], 25, 30.0, rng)[0], 0)
-        self.assertLess(measure_rstd_sync([SyncCell(1, 0.0), SyncCell(2, -5e-6)], 25, 30.0, rng)[0], 0)
-
-    def test_four_overlapping_cells_equal_power(self):
-        # cells 1 and 4 share N_ID^(2) and so their PSS. Measured rms 17 ns at 10 dB per resource element; the bound leaves room for draws.
-        rng = np.random.default_rng(3)
-        errs = []
-        for _ in range(4):
-            dl = [0.0, 138e-6 + rng.uniform(-3, 3) * 1e-6, -50e-6 + rng.uniform(-3, 3) * 1e-6, 51e-6 + rng.uniform(-3, 3) * 1e-6]
-            est = measure_rstd_sync([SyncCell(i + 1, dl[i]) for i in range(4)], 25, 10.0, rng)
-            errs += [est[i - 1] - dl[i] for i in (1, 2, 3)]
-        self.assertLess(float(np.sqrt(np.mean(np.square(errs)))), 40e-9)
-
-    def test_a_stronger_cell_does_not_capture_a_weaker_one_that_shares_its_pss(self):
-        rng = np.random.default_rng(4)
-        for power in (10.0, -10.0):                                       # cell 4 stronger, then weaker, than cell 1 with the same PSS
-            dl = [0.0, 138e-6, -50e-6, 51e-6]
-            cells = [SyncCell(1, dl[0]), SyncCell(2, dl[1]), SyncCell(3, dl[2]), SyncCell(4, dl[3], power)]
-            est = measure_rstd_sync(cells, 25, 10.0, rng)
-            for i in (1, 2, 3):
-                self.assertAlmostEqual(est[i - 1], dl[i], delta=100e-9, msg=f"power {power} cell {i + 1}")
-
-    def test_without_cancellation_the_stronger_cell_does_capture_it(self):
-        # This documents why the cancelling estimator exists. If the plain estimator ever stops failing here, the claims in bps/sync.py need revisiting.
-        rng = np.random.default_rng(4)
-        dl = [0.0, 138e-6, -50e-6, 51e-6]
-        cells = [SyncCell(1, dl[0]), SyncCell(2, dl[1]), SyncCell(3, dl[2]), SyncCell(4, dl[3], 10.0)]
-        est = measure_rstd_sync(cells, 25, 10.0, rng, cancel=False)
-        self.assertGreater(max(abs(est[i - 1] - dl[i]) for i in (1, 2, 3)), 1e-6)
-
-    def test_inputs_that_cannot_be_modelled_are_refused(self):
-        rng = np.random.default_rng(5)
-        ok = [SyncCell(1, 0.0), SyncCell(2, 1e-6)]
-        with self.assertRaises(ValueError):
-            measure_rstd_sync(ok, 20, 10.0, rng)
-        with self.assertRaises(ValueError):
-            measure_rstd_sync(ok[:1], 25, 10.0, rng)
-        for delay in (-1.2e-3, 1.5e-3):
-            with self.assertRaises(ValueError, msg=str(delay)):
-                measure_rstd_sync([ok[0], SyncCell(2, delay)], 25, 10.0, rng)
-        with self.assertRaises(ValueError):
-            measure_rstd_sync([SyncCell(1, 0.0), SyncCell(600, 1e-6)], 25, 10.0, rng)
-
-
-class Weights(unittest.TestCase):
-    def test_table_and_interpolation(self):
-        for snr, sigma in SYNC_TOA_SIGMA_NS:
-            self.assertAlmostEqual(toa_sigma_ns(snr), sigma)
-        self.assertAlmostEqual(toa_sigma_ns(5.0), (SYNC_TOA_SIGMA_NS[0][1] + SYNC_TOA_SIGMA_NS[1][1]) / 2)
-        self.assertEqual(toa_sigma_ns(60.0), SYNC_TOA_SIGMA_NS[-1][1])          # above the table the 30 dB value is kept
-        self.assertTrue(all(a[1] > b[1] for a, b in zip(SYNC_TOA_SIGMA_NS, SYNC_TOA_SIGMA_NS[1:])))   # the error falls with SNR
-
-    def test_below_the_measured_range_is_refused_not_clamped(self):
-        with self.assertRaises(ValueError):
-            toa_sigma_ns(-0.1)
-
-
-class FromSyncToFix(unittest.TestCase):
-    def test_lab_measurement_agrees_with_the_geometry(self):
-        w = lab.World(epoch_gps_ns=1_500_000_000 * 10**9, seed=2)
-        t = w.epoch_gps_ns + 40 * 10**9
-        m = w.measurement_from_sync(t, 0, np.random.default_rng(1), snr_db=20.0)
-        f = w.measurement(t, 0, noise_ns=0.0)
-        for cid in (2, 3, 4):
-            self.assertAlmostEqual(m.rstd_s[cid], f.rstd_s[cid], delta=20e-9, msg=str(cid))   # about 4 sigma at 20 dB
-        self.assertEqual(set(m.sigma_by_cell), {2, 3, 4})
-        self.assertAlmostEqual(m.sigma_by_cell[2], toa_sigma_ns(20.0) * 1e-9)
-
-    def test_no_reporting_step_is_applied(self):
-        w = lab.World(epoch_gps_ns=1_500_000_000 * 10**9, seed=2)
-        t = w.epoch_gps_ns + 40 * 10**9
-        m = w.measurement_from_sync(t, 0, np.random.default_rng(1), snr_db=30.0)
-        f = w.measurement(t, 0, noise_ns=0.0)
-        for cid in (2, 3, 4):
-            # TS 36.133 reporting would put cell 2 (about 4270 Ts) on a 163 ns step; the estimate is within a few ns of the truth instead
-            self.assertLess(abs(m.rstd_s[cid] - f.rstd_s[cid]), 6e-9, cid)
-
-    def test_position_from_sync_and_its_claimed_uncertainty(self):
-        # 8 instants over 60 s at 10 dB per resource element. Measured over 30 fixes: rmse 4.4 m against 5.1 m claimed.
-        w = lab.World(epoch_gps_ns=1_500_000_000 * 10**9, seed=2)
-        errs, claimed = [], []
-        for k in range(8):
-            t = w.epoch_gps_ns + (40 + 8 * k) * 10**9
-            m = w.measurement_from_sync(t, 0, np.random.default_rng(k), snr_db=10.0)
-            rstd = np.array([0.0] + [m.rstd_s[c] for c in (2, 3, 4)])
-            rtd = np.array([0.0] + [((w.true_rtd_ns(c, t) + 500_000) % 1_000_000 - 500_000) * 1e-9 for c in (2, 3, 4)])
-            sigma = np.array([1.0] + [m.sigma_by_cell[c] for c in (2, 3, 4)])
-            sol = solve_rstd(lab.CELLS_ENU, rstd, rtd, sigma, ref=0, fix_up_m=lab.UE_ENU[2])
-            errs.append(float(np.linalg.norm(sol.position_enu[:2] - lab.UE_ENU[:2])))
-            claimed.append(sol.horizontal_sigma_m)
-        rmse, sigma_rms = math.sqrt(np.mean(np.square(errs))), math.sqrt(np.mean(np.square(claimed)))
-        self.assertLess(max(errs), 15.0, errs)
-        self.assertLess(rmse, 1.5 * sigma_rms, (rmse, sigma_rms))
-        self.assertGreater(rmse, sigma_rms / 2.5, (rmse, sigma_rms))
-        self.assertTrue(all(e < 3 * c for e, c in zip(errs, claimed)), list(zip(errs, claimed)))
-
 
 if __name__ == "__main__":
     unittest.main()

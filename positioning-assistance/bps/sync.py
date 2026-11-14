@@ -1,24 +1,14 @@
-"""Primary and secondary synchronization signals of a cell, and the time difference a UE measures from them. [spec] unless marked [design]
+"""Primary and secondary synchronization signals of a cell acquisition subframe, as the rig needs them. [spec]
 
-This is the alternative the proposal names where the cell acquisition subframes are not SFN'ed: the time of arrival of each cell is taken from its PSS and SSS
-instead of from PRS. The sequences and their mapping follow TS 36.211 V19.3.0 clauses 6.11.1 and 6.11.2, with the pattern of an MBMS-dedicated cell (slot 0 of
-the frames with n_f mod 4 = 0). What is not here: nothing generates or measures these signals in rt-mbms-tx or rt-mbms-modem for the purpose; this module is the
-signal processing a UE would do, run on a simulated channel, feeding the same positioning chain as bps.prs.
-
-Standing: this is the proposal's alternative, not the measurement the specification sets requirements for. TS 36.133 V19.6.0 clause 8.1.2.5 writes the RSTD
-requirements for PRS and allows the CRS in addition ("it is up to UE implementation whether to use or not the CRS for RSTD measurements"); PSS and SSS are not
-named (SPEC-CLAIMS.md C38). The accuracy requirement (clause 9.1.10.1) is stated at a PRS Es/Iot, so it does not transfer to this signal.
-
-Bandwidth: 62 subcarriers at 15 kHz, 0.93 MHz, against 4.5 MHz of a 25 PRB PRS, so the same noise gives a coarser time of arrival.
+The rig (bps.rig) finds the real cell's cell acquisition subframes in the transmitter's IQ stream by correlating with that cell's PSS and SSS, which are on the air, so
+it needs no cooperation from the transmitter. The sequences and their mapping follow TS 36.211 V19.3.0 clauses 6.11.1 and 6.11.2, with the pattern of an MBMS-dedicated
+cell (slot 0 of the frames with n_f mod 4 = 0). Nothing here measures a time of arrival: positioning uses PRS only.
 """
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
-
 import numpy as np
 
-from .prs import _FFT_FOR_RB, correlation_lag, correlation_peak, ofdm_subframe, sample_rate_hz
+from .prs import _FFT_FOR_RB, ofdm_subframe
 
 # Table 6.11.1.1-1: root index of the Zadoff-Chu sequence for N_ID^(2)  [spec]
 _PSS_ROOT = {0: 25, 1: 29, 2: 34}
@@ -110,98 +100,4 @@ def cas_subframe(cell_id: int, n_rb_dl: int, normal_cp: bool = True) -> np.ndarr
     return ofdm_subframe([slot0, np.zeros_like(slot0)], n_rb_dl)
 
 
-@dataclass(frozen=True)
-class SyncCell:
-    """A cell as the UE sees it. `delay_s` is the arrival delay of the cell's subframe grid against the UE's own (the reference cell's), `power_db` the
-    received power against the reference cell."""
-    cell_id: int
-    delay_s: float
-    power_db: float = 0.0
-
-
-# [design] rms error of the time difference measured in simulation (25 PRB, one path, four cells overlapping at equal power, random relative delays within
-# +-3 us of the lab's, the cancelling estimator, 14 draws of 3 cells each, seed 77): `python3 -m bps.compare sigma`, output in
-# results/sync-sigma-2026-11-14.txt. A different channel, number of cells or power spread needs different values.
-SYNC_TOA_SIGMA_NS = ((0.0, 52.2), (10.0, 16.8), (20.0, 5.3), (30.0, 1.7))
-
-
-def toa_sigma_ns(snr_db: float) -> float:
-    """Error of one time difference from the table above, interpolated between its points. Above 30 dB the 30 dB value is kept (the real error is lower);
-    below 0 dB nothing was measured, so it is refused instead of guessed."""
-    if snr_db < SYNC_TOA_SIGMA_NS[0][0]:
-        raise ValueError(f"no measured error below {SYNC_TOA_SIGMA_NS[0][0]} dB per resource element; pass the error explicitly")
-    xs, ys = zip(*SYNC_TOA_SIGMA_NS)
-    return float(np.interp(snr_db, xs, ys))
-
-
-def _delayed(ref_padded_fft: np.ndarray, freqs: np.ndarray, lag_s: float) -> np.ndarray:
-    return np.fft.ifft(ref_padded_fft * np.exp(-2j * np.pi * freqs * lag_s))
-
-
-def measure_rstd_sync(cells: list[SyncCell], n_rb_dl: int, snr_db: float, rng: np.random.Generator, window_ms: float = 3.0,
-                      cancel: bool = True) -> list[float]:
-    """[design] Time differences, in seconds, of cells 1..N against cell 0, estimated from the PSS and SSS in simulated received waveforms.
-
-    All cells send their cell acquisition subframe at the same time on the UE's grid, so they overlap in one received window, as non-SFN'ed cells do on air.
-    The reference cell's nominal subframe start is 1 ms into the window; a cell's arrival is its `delay_s` after that. `snr_db` is the signal to noise ratio per
-    resource element of a cell at `power_db` = 0 (noise variance per subcarrier against the unit power of a PSS or SSS element). One path per cell, white
-    Gaussian noise, no frequency offset.
-
-    Each cell is found by correlating the window with that cell's own PSS and SSS. Different cells' sequences are not orthogonal, so with `cancel` False
-    each cell's peak is pulled by the others (a bias set by the relative delays that does not average out), and a cell much stronger than another makes the
-    correlation lock on the wrong one; cells that share N_ID^(2) also share their PSS. With `cancel` True (the default) the cells are taken strongest first:
-    its delay and complex amplitude are estimated, its signal is subtracted, and the next is looked for in what remains; two refinement passes then redo each
-    cell with the others removed.
-    """
-    if n_rb_dl not in _FFT_FOR_RB:
-        raise ValueError(f"N_RB^DL {n_rb_dl} is not one of {sorted(_FFT_FOR_RB)}")
-    if len(cells) < 2:
-        raise ValueError("a time difference needs a reference cell and at least one other")
-    fs = sample_rate_hz(n_rb_dl)
-    n_win = int(round(window_ms * 1e-3 * fs))
-    room_s = (window_ms - 2.0) * 1e-3
-    for c in cells:
-        if not -1e-3 <= c.delay_s <= room_s:
-            raise ValueError(f"delay {c.delay_s * 1e6:.1f} us is outside the window (-1000 .. {room_s * 1e6:.0f} us)")
-    freqs = np.fft.fftfreq(n_win, d=1 / fs)
-    refs = [cas_subframe(c.cell_id, n_rb_dl) for c in cells]
-    ref_fft = []
-    for ref in refs:
-        padded = np.zeros(n_win, dtype=complex)
-        padded[: len(ref)] = ref
-        ref_fft.append(np.fft.fft(padded))
-    rx = np.zeros(n_win, dtype=complex)
-    for c, rf in zip(cells, ref_fft):
-        rx += 10 ** (c.power_db / 20) * _delayed(rf, freqs, 1e-3 + c.delay_s)
-    sigma = math.sqrt(10 ** (-snr_db / 10) / 2)    # per real component; complex variance 10^(-snr/10) gives that variance per subcarrier after the FFT
-    rx = rx + sigma * (rng.standard_normal(n_win) + 1j * rng.standard_normal(n_win))
-    if not cancel:
-        toa = [correlation_lag(rx, ref) / fs - 1e-3 for ref in refs]
-        return [toa[i] - toa[0] for i in range(1, len(cells))]
-
-    lags = [0.0] * len(cells)
-    contrib = [np.zeros(n_win, dtype=complex) for _ in cells]
-    residual = rx.copy()
-
-    def fit(i: int, target: np.ndarray) -> tuple[float, np.ndarray, float]:
-        lag, _ = correlation_peak(target, refs[i])
-        shifted = _delayed(ref_fft[i], freqs, lag / fs)
-        amp = np.vdot(shifted, target) / np.vdot(shifted, shifted)
-        return lag / fs, amp * shifted, float(abs(amp) * np.linalg.norm(shifted))
-
-    remaining = set(range(len(cells)))
-    while remaining:                       # strongest first
-        best = max(remaining, key=lambda i: fit(i, residual)[2])
-        lags[best], contrib[best], _ = fit(best, residual)
-        residual = residual - contrib[best]
-        remaining.discard(best)
-    for _ in range(2):                     # refine each cell with the others removed
-        for i in range(len(cells)):
-            residual = residual + contrib[i]
-            lags[i], contrib[i], _ = fit(i, residual)
-            residual = residual - contrib[i]
-    toa = [lag - 1e-3 for lag in lags]
-    return [toa[i] - toa[0] for i in range(1, len(cells))]
-
-
-__all__ = ["split_cell_id", "pss_sequence", "sss_indices", "sss_sequence", "sync_slot_grid", "cas_subframe", "SyncCell", "measure_rstd_sync", "toa_sigma_ns", "SYNC_TOA_SIGMA_NS", "SYNC_LEN"]
+__all__ = ["split_cell_id", "pss_sequence", "sss_indices", "sss_sequence", "sync_slot_grid", "cas_subframe"]

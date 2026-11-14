@@ -138,8 +138,6 @@ def cmd_ue(a) -> None:
             try:
                 if a.measure == "prs":
                     m = world.measurement_from_prs(t_net, sample_clock, rng, snr_db=0.0 if a.snr_db is None else a.snr_db)
-                elif a.measure == "sync":
-                    m = world.measurement_from_sync(t_net, sample_clock, rng, snr_db=10.0 if a.snr_db is None else a.snr_db)
                 elif a.measure == "modem":
                     # slide 15: the PRS information of the document goes down to the modem's PHY, which measures; the RTD and the cell locations stay here
                     doc = store.current(t_net)
@@ -267,16 +265,14 @@ def main() -> None:
     g.add_argument("--doc-url")
     u.add_argument("--modem-url", default="http://10.80.0.2:3010/modem-api/sib_info")
     u.add_argument("--world-epoch-gps-ns", type=int, required=True, help="the publisher's world epoch, printed by `publish`")
-    u.add_argument("--measure", choices=("formula", "prs", "sync", "modem"), default="formula",
-                   help="where the time differences come from: computed from the geometry (default), estimated from simulated PRS waveforms, estimated "
-                        "from the PSS and SSS of simulated cell acquisition subframes, or measured by the modem on the PRS it receives (the PRS information "
+    u.add_argument("--measure", choices=("formula", "prs", "modem"), default="formula",
+                   help="where the time differences come from: computed from the geometry (default), estimated from simulated PRS waveforms, or measured by the modem on the PRS it receives (the PRS information "
                         "of the assistance document is pushed down to it, slide 15 of the proposal)")
     u.add_argument("--prs-ratio-min", type=float, default=9.0,
                    help="with --measure modem: how far a cell's correlation peak must stand out of the background (peak over median, as the modem reports it) "
                         "for the cell to count as detected")
     u.add_argument("--snr-db", type=float, default=None,
-                   help="with --measure prs: signal to noise ratio per sample of each cell (default 0); with --measure sync: per resource "
-                        "element (default 10)")
+                   help="with --measure prs: signal to noise ratio per sample of each cell (default 0)")
     u.add_argument("--interval", type=float, default=2.0)
     u.add_argument("--seconds", type=float, default=60.0)
     u.add_argument("--leap-seconds", type=int, default=18)
