@@ -2,8 +2,9 @@
 
 This is the alternative the proposal names where the cell acquisition subframes are not SFN'ed: the time of arrival of each cell is taken from its PSS and SSS
 instead of from PRS. The sequences and their mapping follow TS 36.211 V19.3.0 clauses 6.11.1 and 6.11.2, with the pattern of an MBMS-dedicated cell (slot 0 of
-the frames with n_f mod 4 = 0). What is not here: nothing generates or measures these signals in rt-mbms-tx or rt-mbms-modem for the purpose; this module is the
-signal processing a UE would do, run on a simulated channel, feeding the same positioning chain as bps.prs.
+the frames with n_f mod 4 = 0). This module is the signal processing a UE would do, run on a simulated channel, feeding the same positioning chain as bps.prs; it is the
+reference for the modem's own implementation (rt-mbms-modem src/SyncSignal.h, compared with the golden vectors of tools/gen_sync_golden.py), which measures these signals
+on the samples it receives when the UE asks for them (ModemPrs(signal="pss_sss")). The transmitter needs nothing of its own: srsRAN already sends the PSS and SSS.
 
 Standing: this is the proposal's alternative, not the measurement the specification sets requirements for. TS 36.133 V19.6.0 clause 8.1.2.5 writes the RSTD
 requirements for PRS and allows the CRS in addition ("it is up to UE implementation whether to use or not the CRS for RSTD measurements"); PSS and SSS are not
