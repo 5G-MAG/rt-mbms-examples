@@ -42,7 +42,7 @@ class ModemPrs:
     def assistance_json(doc: AssistanceDocument) -> dict:
         cells = []
         for c in (doc.reference, *doc.neighbours):
-            cells.append({"cell_id": c.phys_cell_id,
+            cells.append({"cell_id": c.phys_cell_id, "cp_length": c.cp_length,
                           "prs": {"bandwidth_prb": c.prs.bandwidth_prb, "configuration_index": c.prs.configuration_index,
                                   "num_dl_frames": c.prs.num_dl_frames, "prs_id": c.prs.prs_id, "muting": c.prs.muting}})
         return {"reference_cell_id": doc.reference.phys_cell_id, "cells": cells}

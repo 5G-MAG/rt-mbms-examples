@@ -13,6 +13,49 @@ from bps.timebase import (C_MPS, SUBFRAME_NS, TS_S, TimeAnchor, _PRS_TABLE, gps_
                           sib16_r15_time_to_ns)
 
 
+class CellCyclicPrefix(unittest.TestCase):
+    """The cyclic prefix is a parameter of each cell (TS 37.355 cpLength of OTDOA assistance data, per cell), stated in the document or left to the serving cell's."""
+
+    def doc(self, ref_cp=None, n_cp=None):
+        prs = Prs(25, 2435, 1)
+        return AssistanceDocument(1, 0, 10**18, Cell(1, 46.0, 6.0, 400.0, prs, cp_length=ref_cp),
+                                  [Cell(2, 46.1, 6.0, 400.0, prs, Rtd(1000.0, 5.0, 10**18), n_cp)])
+
+    def test_round_trip(self):
+        back = AssistanceDocument.from_json(self.doc("extended", "normal").to_json())
+        self.assertEqual((back.reference.cp_length, back.neighbours[0].cp_length), ("extended", "normal"))
+
+    def test_absent_stays_absent(self):
+        back = AssistanceDocument.from_json(self.doc().to_json())
+        self.assertIsNone(back.reference.cp_length)
+        self.assertIsNone(back.neighbours[0].cp_length)
+
+    def test_a_document_without_the_field_is_read(self):
+        import json
+        raw = json.loads(self.doc().to_json())
+        del raw["reference"]["cp_length"], raw["neighbours"][0]["cp_length"]
+        self.assertIsNone(AssistanceDocument.from_json(json.dumps(raw)).reference.cp_length)
+
+    def test_another_value_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.doc(n_cp="short").to_json()
+
+    def test_the_lab_network_states_the_prefixes_it_is_given(self):
+        from bps import lab
+        net = lab.network({3: "normal"})
+        cps = {s.as_cell().phys_cell_id: s.as_cell().cp_length for s in (net.reference, *net.neighbours)}
+        self.assertEqual(cps, {1: None, 2: None, 3: "normal", 4: None})
+        self.assertTrue(all(s.as_cell().cp_length is None for s in (lab.network().reference, *lab.network().neighbours)))
+
+    def test_the_command_line_form(self):
+        from bps.apps import _cell_cp
+        self.assertEqual(_cell_cp(["3=normal", "4=extended"]), {3: "normal", 4: "extended"})
+        self.assertEqual(_cell_cp(None), {})
+        for bad in ("3", "x=normal", "3=short", "=normal"):
+            with self.assertRaises(SystemExit):
+                _cell_cp([bad])
+
+
 class PrsOccasions(unittest.TestCase):
     def test_table_6_10_4_3_1_rows(self):
         # one point per row of the table, as read from the rendered TS 36.211 V19.3.0 page 175

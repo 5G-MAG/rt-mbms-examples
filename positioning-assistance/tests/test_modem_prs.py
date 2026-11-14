@@ -94,6 +94,13 @@ class ModemPrsTests(unittest.TestCase):
         self.assertIsNone(j["cells"][1]["prs"]["muting"])
         json.dumps(j)                                                    # serialisable as it is
 
+    def test_the_cyclic_prefix_of_each_cell_goes_down(self):
+        doc = small_doc()
+        doc.neighbours[0].cp_length = "normal"
+        doc.reference.cp_length = "extended"
+        j = ModemPrs.assistance_json(doc)
+        self.assertEqual([c["cp_length"] for c in j["cells"]], ["extended", "normal", None])   # absent: the serving cell's, left for the modem to resolve
+
     def test_no_position_or_timing_goes_to_the_modem(self):
         text = json.dumps(ModemPrs.assistance_json(small_doc()))
         for word in ("latitude", "longitude", "height", "rtd", "valid"):

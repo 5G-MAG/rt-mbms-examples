@@ -31,7 +31,7 @@ run_bg "assistance publisher" pos-publisher \
     --portal-url "$PORTAL_URL" --portal-user "$PORTAL_USER" --portal-password "$PORTAL_TOKEN" \
     --tmgi-service-id "$POS_TMGI_SERVICE_ID" --tsi "$POS_TSI" --mcast "$POS_MCAST_ADDR" --port "$POS_MCAST_PORT" \
     --c-teid "$POS_C_TEID" --path "$POS_FILE_PATH" --interval "$POS_INTERVAL" --validity "$POS_VALIDITY" \
-    --leap-seconds "$LEAP_SECONDS"
+    --leap-seconds "$LEAP_SECONDS" $(for c in $POS_CELL_CP; do printf -- '--cell-cp %s ' "$c"; done)
 
 # The publisher prints the session it created and the epoch of its synthetic world; keep both for the UE and for stop.
 for _ in $(seq 1 60); do

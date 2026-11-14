@@ -18,13 +18,24 @@ from .ue import AssistanceStore, NetworkClock, Positioner, StaleDocument
 from .xmb import PortalClient, SessionSpec, XmbUClient
 
 
+def _cell_cp(items) -> dict:
+    """`--cell-cp 3=normal` (repeatable) as {3: "normal"}."""
+    out = {}
+    for it in items or []:
+        cid, _, cp = it.partition("=")
+        if not cid.isdigit() or cp not in ("normal", "extended"):
+            raise SystemExit(f"--cell-cp wants CELL=normal or CELL=extended, not {it!r}")
+        out[int(cid)] = cp
+    return out
+
+
 def _fetch(url: str, timeout: float = 5.0) -> bytes:
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return r.read()
 
 
 def cmd_publish(a) -> None:
-    net = lab.network()
+    net = lab.network(_cell_cp(a.cell_cp))
     world = lab.World(epoch_gps_ns=lab.host_gps_ns(a.leap_seconds))
     monitor = RtdMonitor(geo.enu_to_lla(lab.ORIGIN, lab.MONITOR_ENU), net.lla(), reference_id=1, min_epochs=5,
                          timestamp_sigma_ns=world.noise_ns)
@@ -125,7 +136,8 @@ def cmd_rig(a) -> None:
         refresh_epoch()
         return world.emulated_delay_s(cell_id, world.epoch_gps_ns if a.freeze else t_ns)
 
-    mixer = Mixer([EmulatedCell(c) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal")
+    cell_cp = _cell_cp(a.cell_cp)
+    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal")
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.SUBSCRIBE, b"")
@@ -178,6 +190,8 @@ def main() -> None:
     p.add_argument("--validity", type=int, default=90)
     p.add_argument("--leap-seconds", type=int, default=18)
     p.add_argument("--seconds", type=float, default=0, help="stop after this long (0 = run until killed)")
+    p.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended",
+                   help="state this cell's cyclic prefix in the document (TS 37.355 cpLength); cells not named state none, which the UE reads as the serving cell's (repeatable)")
     u = sub.add_parser("ue")
     g = u.add_mutually_exclusive_group(required=True)
     g.add_argument("--doc-file")
@@ -204,6 +218,7 @@ def main() -> None:
     r.add_argument("--power-db", type=float, default=-6.0, help="their power against the real cell's PSS and SSS elements (at -12 dB the modem barely tells them from noise, at -6 dB it measures them to about 10 ns)")
     r.add_argument("--world-epoch-file", help="the publisher's world epoch (positions the RTD of the emulated cells in time)")
     r.add_argument("--cp", choices=("extended", "normal"), default="extended", help="the real cell's cyclic prefix (the transmitter's extended_cp)")
+    r.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended", help="an emulated cell whose cyclic prefix differs from the real cell's (repeatable)")
     r.add_argument("--freeze", action="store_true", help="evaluate the delays at the world epoch, so they do not drift (for checks against exact values)")
     r.add_argument("--leap-seconds", type=int, default=18)
     a = ap.parse_args()

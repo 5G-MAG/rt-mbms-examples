@@ -15,9 +15,10 @@ class CellSite:
     longitude_deg: float
     height_m: float
     prs: Prs
+    cp_length: Optional[str] = None   # "normal" or "extended", carried in the document when set
 
     def as_cell(self) -> Cell:
-        return Cell(self.phys_cell_id, self.latitude_deg, self.longitude_deg, self.height_m, self.prs)
+        return Cell(self.phys_cell_id, self.latitude_deg, self.longitude_deg, self.height_m, self.prs, cp_length=self.cp_length)
 
 
 @dataclass(frozen=True)

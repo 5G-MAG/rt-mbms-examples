@@ -65,6 +65,7 @@ class Cell:
     height_m: float
     prs: Prs
     rtd: Rtd | None = None  # absent on the reference cell
+    cp_length: str | None = None  # "normal" or "extended": the cell's cyclic prefix (TS 37.355 cpLength of OTDOA assistance data, per cell); absent: the serving cell's
 
 
 @dataclass
@@ -88,6 +89,8 @@ class AssistanceDocument:
             if c.prs.num_dl_frames not in _NUM_DL_FRAMES:
                 raise ValueError("numDL-Frames must be 1,2,4 or 6")
             prs_period_offset(c.prs.configuration_index)  # raises for reserved indices
+            if c.cp_length not in (None, "normal", "extended"):
+                raise ValueError("cp_length must be \"normal\" or \"extended\"")
             if c.prs.prs_id is not None and not 0 <= c.prs.prs_id <= 4095:
                 raise ValueError("PRS ID must be 0..4095")
             if c.prs.muting is not None and (len(c.prs.muting) not in _MUTING_LENGTHS or set(c.prs.muting) - {"0", "1"}):
@@ -117,7 +120,7 @@ class AssistanceDocument:
         def cell(d):
             return Cell(
                 d["phys_cell_id"], d["latitude_deg"], d["longitude_deg"], d["height_m"], Prs(**d["prs"]),
-                Rtd(**d["rtd"]) if d.get("rtd") else None,
+                Rtd(**d["rtd"]) if d.get("rtd") else None, d.get("cp_length"),
             )
 
         doc = AssistanceDocument(

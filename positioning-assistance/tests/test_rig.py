@@ -196,6 +196,22 @@ class MixerTests(unittest.TestCase):
             Mixer(self.CELLS, lambda c, t: 0.0, lambda: 0, n_rb=50)
 
 
+class PerCellCpMixerTests(unittest.TestCase):
+    """An emulated cell may have a cyclic prefix of its own: its PRS is built with it, the real cell's with the real cell's."""
+
+    def test_a_cell_with_its_own_prefix_is_built_with_it(self):
+        cells = [EmulatedCell(2, normal_cp=True), EmulatedCell(3), EmulatedCell(4, normal_cp=False)]
+        m = Mixer(cells, lambda cid, t: 0.0, lambda: 10**18, normal_cp=False)
+        want = {2: True, 3: False, 4: False}
+        for cid, normal in want.items():
+            np.testing.assert_allclose(m._waves[cid], upsample2(prs_subframe(cid, 0, 25, n_f=0, normal_cp=normal)))
+        self.assertFalse(np.allclose(m._waves[2], upsample2(prs_subframe(2, 0, 25, n_f=0, normal_cp=False))))
+        m2 = Mixer([EmulatedCell(3, normal_cp=False)], lambda cid, t: 0.0, lambda: 10**18, normal_cp=True)
+        np.testing.assert_allclose(m2._waves[3], upsample2(prs_subframe(3, 0, 25, n_f=0, normal_cp=False)))
+        m3 = Mixer([EmulatedCell(3)], lambda cid, t: 0.0, lambda: 10**18, normal_cp=True)
+        np.testing.assert_allclose(m3._waves[3], upsample2(prs_subframe(3, 0, 25, n_f=0, normal_cp=True)))
+
+
 class NormalCpMixerTests(MixerTests):
     """The same, for a real cell with the normal cyclic prefix: the cyclic prefix is a parameter (TS 36.211 clause 6.1)."""
     NORMAL_CP = True

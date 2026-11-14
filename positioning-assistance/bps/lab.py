@@ -34,14 +34,16 @@ PRS_INDEX = 2435
 UNIX_TO_GPS_NS = 315_964_800 * 10**9  # GPS epoch in Unix time; leap seconds are applied by the caller when they matter
 
 
-def network() -> Network:
+def network(cell_cp: Optional[dict] = None) -> Network:
+    """The four-cell network of the lab. `cell_cp` maps a cell identity to \"normal\" or \"extended\": the cyclic prefix the document then states for that cell."""
+    cell_cp = cell_cp or {}
     sites = []
     for i, p in enumerate(CELLS_ENU):
         lat, lon, h = geo.enu_to_lla(ORIGIN, p)
         # Index 2435 is T_PRS 40, Delta_PRS 0: PRS in subframe 0 of the frames with n_f mod 4 = 0, which on this carrier (MBMS-dedicated,
         # MBSFN subframes at 1.25 kHz) are the only 15 kHz subframes, the cell acquisition subframes. PRS is defined for 15 kHz only
         # (SPEC-CLAIMS.md C28). All cells share it and are told apart by N_ID^PRS. That PRS is allowed there is not established.
-        sites.append(CellSite(i + 1, lat, lon, h, Prs(25, PRS_INDEX, 1)))
+        sites.append(CellSite(i + 1, lat, lon, h, Prs(25, PRS_INDEX, 1), cp_length=cell_cp.get(i + 1)))
     return Network(sites[0], tuple(sites[1:]))
 
 

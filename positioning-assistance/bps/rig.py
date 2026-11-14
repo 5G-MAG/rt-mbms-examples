@@ -84,6 +84,7 @@ def correlation_lag(rx: np.ndarray, ref: np.ndarray) -> tuple[float, float]:
 class EmulatedCell:
     cell_id: int
     prs_id: Optional[int] = None     # the cell identity when absent
+    normal_cp: Optional[bool] = None  # this cell's cyclic prefix; the real cell's when absent
 
 
 class Mixer:
@@ -114,7 +115,8 @@ class Mixer:
         # What the real cell sends in its cell acquisition subframe that is known here: the PSS and SSS and, if it sends them, its own PRS. Correlating with
         # the PSS and SSS alone is biased by a few nanoseconds by the PRS elements next to them, so the PRS goes into the reference when it is on the air.
         self._lock_ref = self._sync_ref + (upsample2(prs_subframe(real_cell_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) if real_cell_has_prs else 0.0)
-        self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) for c in cells}
+        self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0,
+                                                    normal_cp=normal_cp if c.normal_cp is None else c.normal_cp)) for c in cells}
         self.lock_quality = 0.0       # match of the latest lock attempt over the background
         self.best_lock_ratio = 0.0    # the strongest match of any attempt, including those refused for not repeating
         self.injected = 0
