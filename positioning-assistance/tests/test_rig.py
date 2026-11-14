@@ -174,17 +174,6 @@ class MixerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Mixer([EmulatedCell(2)], lambda c, t: 0.0, lambda: 0, signal="crs")
 
-    def test_no_cell_is_added_before_the_stated_time(self):
-        x = self.stream(8, 85.3)
-        late = Mixer(self.CELLS, lambda cid, t: self.DELAYS[cid], lambda: 10**18, power_db=-6.0, normal_cp=self.NORMAL_CP, inject_after_s=0.2)
-        out = run(late, x)
-        diff = np.abs(out.astype(complex) - x.astype(complex))
-        first_added = int(np.argmax(diff > 1e-6))
-        self.assertGreaterEqual(first_added, int(0.2 * FS))                      # nothing before 200 ms of the stream (the lock alone takes about 120 ms)
-        self.assertGreater(float(diff[int(0.2 * FS):].max()), 1e-3)              # and the cells are there afterwards
-        early = Mixer(self.CELLS, lambda cid, t: self.DELAYS[cid], lambda: 10**18, power_db=-6.0, normal_cp=self.NORMAL_CP)
-        self.assertLess(int(np.argmax(np.abs(run(early, x).astype(complex) - x.astype(complex)) > 1e-6)), int(0.2 * FS))   # by default they start at the first occasion after the lock
-
     def test_the_real_cell_is_untouched_outside_the_injections(self):
         x = self.stream(6, 85.3)
         m = self.mixer()

@@ -261,7 +261,6 @@ POS_CELL_CFO="${POS_CELL_CFO:-}"                # per-cell carrier frequency off
 POS_CELL_CP="${POS_CELL_CP:-}"                 # per-cell cyclic prefix, e.g. "3=normal 4=normal": stated in the document (publisher) and used by the mixer for that emulated cell. Unset: every cell has the serving cell's
 POS_RIG_CELL_CP="${POS_RIG_CELL_CP-$POS_CELL_CP}"   # the cyclic prefixes the mixer gives its emulated cells; by default those the document states (set it empty, or differently, to test a document that does not match what is on the air)
 POS_TOA_SIGNAL="${POS_TOA_SIGNAL:-prs}"         # pss_sss: the modem takes each cell's time of arrival from its PSS and SSS, and the mixer's cells send those instead of PRS (the proposal's alternative where the cell acquisition subframes are not SFN'ed, slide 13 Note 1)
-POS_RIG_INJECT_AFTER_S="${POS_RIG_INJECT_AFTER_S:-0}"   # seconds of stream before the mixer adds its cells; with POS_TOA_SIGNAL=pss_sss use about 100 (their PSS and SSS overlap the real cell's and disturb the modem's cell search)
 POS_RIG_PRS="${POS_RIG_PRS:-true}"             # false: the transmitter sends no PRS but the mixer stays in the path (a control for measuring what PRS costs)
 POS_RIG_SNR_DB="${POS_RIG_SNR_DB:-}"           # set: the mixer starts with white noise (it can be changed while running through $STATE_DIR/pos_rig_snr), Es/N0 per resource element at the modem (for block error rate against signal to noise ratio)
 POS_RIG_FREEZE="${POS_RIG_FREEZE:-}"         # set: the emulated cells' delays do not drift (for checks against exact values)

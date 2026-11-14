@@ -94,8 +94,7 @@ class Mixer:
 
     def __init__(self, cells: list[EmulatedCell], delay_s: Callable[[int, int], float], now_gps_ns: Callable[[], int], real_cell_id: int = 1,
                  n_rb: int = 25, power_db: float = -6.0, lock_blocks: int = 2 * CAS_PERIOD // BLOCK + 2, real_cell_has_prs: bool = True,
-                 min_lock_ratio: float = 8.0, normal_cp: bool = False, snr_db: Optional[float] = None, seed: int = 0, signal: str = "prs",
-                 inject_after_s: float = 0.0):
+                 min_lock_ratio: float = 8.0, normal_cp: bool = False, snr_db: Optional[float] = None, seed: int = 0, signal: str = "prs"):
         if signal not in ("prs", "pss_sss"):
             raise ValueError("signal is prs or pss_sss")
         if n_rb != 25:
@@ -122,7 +121,6 @@ class Mixer:
         # what an emulated cell sends in its cell acquisition subframe: its PRS, or (signal "pss_sss", the proposal's alternative where those subframes are not
         # SFN'ed) its PSS and SSS
         self.signal = signal
-        self.inject_after_s = inject_after_s   # no emulated cell is added before this much of the stream has passed: lets the receiver acquire the real cell first
         self._waves = {c.cell_id: upsample2(cas_subframe(c.cell_id, n_rb, normal_cp=normal_cp if c.normal_cp is None else c.normal_cp) if signal == "pss_sss" else
                                             prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0,
                                                          normal_cp=normal_cp if c.normal_cp is None else c.normal_cp)) for c in cells}
@@ -168,7 +166,7 @@ class Mixer:
             if a - 15360 > horizon:
                 break
             t = self.now()
-            for c in (self.cells if self._n0 >= self.inject_after_s * FS else ()):
+            for c in self.cells:
                 start = a + self.delay_s(c.cell_id, t) * FS
                 i0 = int(math.floor(start))
                 w = frac_delay(self._waves[c.cell_id] * (self.scale * 10 ** (self.power_db / 20.0)), start - i0)

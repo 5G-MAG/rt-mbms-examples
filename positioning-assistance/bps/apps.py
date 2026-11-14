@@ -189,7 +189,7 @@ def cmd_rig(a) -> None:
 
     cell_cp = _cell_cp(a.cell_cp)
     cell_cfo = _cell_cfo(a.cell_cfo)
-    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs, signal=a.signal, inject_after_s=a.inject_after_s)
+    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs, signal=a.signal)
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.SUBSCRIBE, b"")
@@ -294,9 +294,6 @@ def main() -> None:
     r.add_argument("--snr-file", help="a file holding the Es/N0 in dB (or `off`), read once a second and followed while running; overrides --snr-db")
     r.add_argument("--signal", choices=("prs", "pss_sss"), default="prs",
                    help="what an emulated cell sends in its cell acquisition subframe: its PRS (default) or its PSS and SSS (the proposal's alternative where those subframes are not SFN'ed)")
-    r.add_argument("--inject-after-s", type=float, default=0.0,
-                   help="add no emulated cell before this much of the stream has passed, so that the receiver acquires the real cell first (emulated PSS and SSS overlap the real cell's "
-                        "and disturb its cell search; emulated PRS does not)")
     r.add_argument("--no-real-prs", action="store_true", help="the real cell sends no PRS (the lock reference then holds its PSS and SSS only)")
     r.add_argument("--cell-cfo", action="append", metavar="CELL=HZ", help="an emulated cell's carrier frequency offset against the real cell's (separate oscillators), in Hz (repeatable)")
     r.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended", help="an emulated cell whose cyclic prefix differs from the real cell's (repeatable)")
