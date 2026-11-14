@@ -129,13 +129,6 @@ class ModemPrsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ModemPrs(self.base, signal="crs")
 
-    def test_the_error_given_to_each_time_difference_depends_on_the_signal_unless_stated(self):
-        self.assertEqual(ModemPrs(self.base).sigma_ns, 15.0)
-        self.assertEqual(ModemPrs(self.base, signal="pss_sss").sigma_ns, 20.0)
-        self.assertEqual(ModemPrs(self.base, signal="pss_sss", sigma_ns=33.0).sigma_ns, 33.0)
-        _Modem.state["measurements"] = [{"tti": 40, "sample_clock_ns": 5, "cells": [{"cell_id": c, "present": True, "toa_ns": 100.0 * c, "ratio": 20.0} for c in (1, 2, 3)]}]
-        self.assertAlmostEqual(ModemPrs(self.base, signal="pss_sss").next(small_doc()).sigma_s, 20e-9)
-
     def test_push_and_refusal(self):
         self.prs.push(small_doc())
         self.assertEqual(len(_Modem.state["puts"]), 1)

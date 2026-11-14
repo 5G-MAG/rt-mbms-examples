@@ -282,8 +282,10 @@ def main() -> None:
                    help="with --measure modem: what the modem takes the time of arrival from, the PRS of the assistance data (default) or the PSS and SSS of each cell's "
                         "cell acquisition subframe (the proposal's alternative where those subframes are not SFN'ed, slide 13 Note 1)")
     u.add_argument("--print-rstd-error", action="store_true", help="with --measure modem, lab only: print the error of each time difference against the synthetic world's true value")
-    u.add_argument("--toa-sigma-ns", type=float, default=None,
-                   help="with --measure modem: the error given to each time difference (default 15 for PRS, 20 for the PSS and SSS: see ModemPrs for where they come from)")
+    u.add_argument("--toa-sigma-ns", type=float, default=15.0,
+                   help="with --measure modem: the error given to each time difference. The default is what was measured live for PRS (25 PRB, one path); the PSS and SSS "
+                        "have 62 subcarriers instead of 300 and one live run gave position errors about 1.3 times those claimed with it (rms 33 m against 26 m, 43 fixes), so a "
+                        "larger value is appropriate with --toa-signal pss_sss")
     u.add_argument("--snr-db", type=float, default=None,
                    help="with --measure prs: signal to noise ratio per sample of each cell (default 0); with --measure sync: per resource "
                         "element (default 10)")
