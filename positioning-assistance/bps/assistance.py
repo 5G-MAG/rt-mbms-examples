@@ -97,6 +97,7 @@ _REL_LIMIT = 524287           # INTEGER (-524288..524287)
 _ALT_LIMIT = (-32768, 32767)  # geodetic-height-depth
 _RTD_RESOLUTION_NS = {"ns-5": 5, "ns-10": 10, "ns-50": 50, "ns-100": 100}
 _FINE_RTD_STEP_NS = 10.0      # fineRTD is in units of 10 ns
+_INTER_FREQUENCY = ("earfcnRef", "earfcnRef-v9a0", "earfcn", "earfcn-v9a0")   # fields that say a cell is on another frequency than the serving cell
 _MAX_NORTH_M, _MAX_EAST_M = 20_000.0, 10_000.0   # beyond these OMA-LPPe-RelativeLocation no longer allows the straight-line approximation used here
 
 
@@ -496,6 +497,10 @@ class AssistanceDocument:
     def from_json(text: str) -> "AssistanceDocument":
         raw = AssistanceDocument.unwrap(json.loads(text))
         rinfo, calc = raw["reference"]["referenceCellInfo"], raw["reference"]["positionCalculationInfoRef"]
+        for key in _INTER_FREQUENCY:
+            if key in rinfo:
+                raise ValueError(f"the reference cell states {key}: an assistance data reference cell on another frequency means inter-frequency RSTD measurements, which need "
+                                 "measurement gaps or a second receive chain; not supported")
         ref_point = calc["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"]
         ref_lla = decode_point(ref_point)
         prs = decode_prs_info(rinfo["prsInfo"])
@@ -506,6 +511,10 @@ class AssistanceDocument:
             lla = decode_relative(ref_lla, el["relative-Location"])
             for cd in el["otdoa-eNB-CellDataList"]:       # co-located cells share one location
                 i = cd["otdoa-NeighbourCellInfoElement"]
+                for key in (*_INTER_FREQUENCY, "prs-SubframeOffset"):
+                    if key in i:
+                        raise ValueError(f"cell {i.get('physCellId')} states {key}: a neighbour on another frequency means inter-frequency RSTD measurements, which need "
+                                         "measurement gaps or a second receive chain; not supported")
                 expected, unc = decode_expected(i["expectedRSTD"], i["expectedRSTD-Uncertainty"])
                 neighbours.append(Cell(i["physCellId"], lla[0], lla[1], lla[2], decode_prs_info(i["prsInfo"]) if "prsInfo" in i else prs, decode_rtd(cd["rtdInfo"]),
                                        i.get("cpLength", rinfo["cpLength"]), decode_ecgi(i["cellGlobalId"]) if "cellGlobalId" in i else None, expected, unc,

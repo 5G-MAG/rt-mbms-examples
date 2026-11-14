@@ -169,7 +169,7 @@ class Chain(unittest.TestCase):
         doc_env, doc = load(pub.publish_once(t_last))
         self.assertEqual(doc["reference"]["positionCalculationInfoRef"]["rtdReferenceStd"], {"resolution": "ns-5", "quality": 4})
 
-    def test_subframe_offsets_from_the_sites_are_stated_and_the_ue_refuses_nonzero_ones(self):
+    def test_subframe_offsets_from_the_sites_are_stated_and_every_offset_goes_to_the_modem(self):
         import dataclasses
         sites = tuple(dataclasses.replace(s, subframe_offset=0) for s in self.net.neighbours)
         pub = Publisher(Network(self.net.reference, sites), self.mon, lambda body: None)
@@ -177,21 +177,32 @@ class Chain(unittest.TestCase):
         for n in load(raw)[1]["neighbours"]:
             self.assertEqual(n["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"], 0)
         self.assertEqual(AssistanceStore().ingest(raw), "accepted")
-        bad_env, bad = load(raw)
-        bad["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 3
-        self.assertIn("subframeOffset 3", AssistanceStore().ingest(json.dumps(bad_env).encode()))
-        bad_env, bad = load(raw)
-        bad["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 20
-        self.assertIn("subframeOffset 20", AssistanceStore().ingest(json.dumps(bad_env).encode()))       # not a whole cell acquisition period
+        for off in (3, 20):                                                       # any offset is accepted: the modem applies it, and says if the cell cannot carry PRS then
+            env, ie = load(raw)
+            ie["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = off
+            store = AssistanceStore()
+            self.assertEqual(store.ingest(json.dumps(env).encode()), "accepted")
+            self.assertEqual(ModemPrs.assistance_json(store.current(self.t_last))["cells"][2]["subframe_offset"], off)
+        env, ie = load(raw)
+        ie["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"] = 2
+        self.assertEqual(AssistanceStore().ingest(json.dumps(env).encode()), "accepted")     # for the CRS only; this UE measures PRS
         good_env, good = load(raw)
         good["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 80
         store = AssistanceStore()
         self.assertEqual(store.ingest(json.dumps(good_env).encode()), "accepted")                          # two cell acquisition periods: kept
         j = ModemPrs.assistance_json(store.current(self.t_last))
         self.assertEqual([c["subframe_offset"] for c in j["cells"]], [0, 0, 80, 0])                        # and pushed to the modem
-        bad_env, bad = load(raw)
-        bad["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"] = 2
-        self.assertIn("slotNumberOffset 2", AssistanceStore().ingest(json.dumps(bad_env).encode()))
+
+    def test_a_cell_on_another_frequency_is_refused_with_its_reason(self):
+        raw = self.pub.publish_once(self.t_last)
+        for where, key in (("neighbour", "earfcn"), ("neighbour", "earfcn-v9a0"), ("neighbour", "prs-SubframeOffset"), ("reference", "earfcnRef")):
+            env, ie = load(raw)
+            if where == "neighbour":
+                ie["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"][key] = 100
+            else:
+                ie["reference"]["referenceCellInfo"][key] = 100
+            verdict = AssistanceStore().ingest(json.dumps(env).encode())
+            self.assertTrue(verdict.startswith("rejected") and "inter-frequency" in verdict, (key, verdict))
 
     def test_the_envelope_is_filled_by_the_publisher(self):
         pub = Publisher(self.net, self.mon, lambda body: None, repeat_interval_s=5.0, broadcast_area="Area1", leap_seconds=18)
