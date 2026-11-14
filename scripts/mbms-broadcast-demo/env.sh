@@ -251,6 +251,7 @@ POS_RIG_OUT_PORT="${POS_RIG_OUT_PORT:-2000}"
 POS_RIG_POWER_DB="${POS_RIG_POWER_DB:--6}"    # emulated cells against the real cell's PSS and SSS elements (-12: barely detected; -6: measured to about 10 ns)
 POS_RIG_PRS_INDEX="${POS_RIG_PRS_INDEX:-2435}" # T_PRS 40, Delta_PRS 0: PRS in the cell acquisition subframe
 POS_RIG_CP="${POS_RIG_CP:-}"                 # extended or normal: the real cell's cyclic prefix. Unset: whatever the baseline configuration has (extended_cp)
+POS_SFN_FROM_MODEM="${POS_SFN_FROM_MODEM:-1}"   # 1: the document states the reference cell's SFN (OMA-LPPe systemFrameNumber), read from the modem's SIB16 boundary and time; 0: leave it out
 POS_CELL_CP="${POS_CELL_CP:-}"                 # per-cell cyclic prefix, e.g. "3=normal 4=normal": stated in the document (publisher) and used by the mixer for that emulated cell. Unset: every cell has the serving cell's
 POS_RIG_CELL_CP="${POS_RIG_CELL_CP-$POS_CELL_CP}"   # the cyclic prefixes the mixer gives its emulated cells; by default those the document states (set it empty, or differently, to test a document that does not match what is on the air)
 POS_RIG_PRS="${POS_RIG_PRS:-true}"             # false: the transmitter sends no PRS but the mixer stays in the path (a control for measuring what PRS costs)

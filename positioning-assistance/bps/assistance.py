@@ -166,6 +166,7 @@ class AssistanceDocument:
     valid_until_gps_ns: int
     reference: Cell
     neighbours: list[Cell] = field(default_factory=list)
+    reference_sfn: int | None = None   # the reference cell's SFN at the time the RTDs hold (OMA-LPPe-OTDOA-PositionCalculationInfoRef systemFrameNumber, BIT STRING (SIZE(10)))
 
     def validate(self) -> None:
         cells = [self.reference, *self.neighbours]
@@ -195,6 +196,8 @@ class AssistanceDocument:
                 raise ValueError(f"cell {c.phys_cell_id} needs an rtd")
             if not -500_000 <= c.rtd.rtd_ns < 500_000:
                 raise ValueError("rtd must be within +-0.5 ms (closest-subframe definition)")
+        if self.reference_sfn is not None and not 0 <= self.reference_sfn <= 1023:
+            raise ValueError("systemFrameNumber must be 0..1023")
         if self.valid_until_gps_ns <= self.valid_from_gps_ns:
             raise ValueError("validity window is empty")
 
@@ -208,6 +211,8 @@ class AssistanceDocument:
                            "prs_id": c.prs.prs_id, "muting": c.prs.muting}}
             if is_ref:
                 out["location"] = encode_point(c.latitude_deg, c.longitude_deg, c.height_m)
+                if self.reference_sfn is not None:
+                    out["position_calculation_info"] = {"systemFrameNumber": format(self.reference_sfn, "010b")}
             else:
                 out["relative_location"] = encode_relative(ref_lla, (c.latitude_deg, c.longitude_deg, c.height_m))
                 out["rtd_info"] = encode_rtd(c.rtd)
@@ -228,8 +233,10 @@ class AssistanceDocument:
             lla = ref_lla if is_ref else decode_relative(ref_lla, d["relative_location"])
             return Cell(d["phys_cell_id"], lla[0], lla[1], lla[2], Prs(**d["prs"]), None if is_ref else decode_rtd(d["rtd_info"]), d.get("cp_length"))
 
+        sfn = (raw["reference"].get("position_calculation_info") or {}).get("systemFrameNumber")
         doc = AssistanceDocument(raw["version"], raw["valid_from_gps_ns"], raw["valid_until_gps_ns"],
-                                 cell(raw["reference"], True), [cell(c, False) for c in raw["neighbours"]])
+                                 cell(raw["reference"], True), [cell(c, False) for c in raw["neighbours"]],
+                                 None if sfn is None else int(sfn, 2))
         doc.validate()
         return doc
 

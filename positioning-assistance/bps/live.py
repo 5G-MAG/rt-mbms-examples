@@ -85,3 +85,23 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+class ModemSfn:
+    """The reference cell's SFN at a network time, from the SFN boundary and time that the modem's decoded SIB16 reports (lab: the broadcaster's own clock is the one
+    rt-mbms-tx stamps SIB16 from, and the modem runs on the same host). A real broadcaster knows its own SFN. Returns None when the modem has no boundary."""
+
+    def __init__(self, url: str, timeout_s: float = 3.0):
+        self.url, self.timeout_s = url, timeout_s
+
+    def __call__(self, gps_ns: int) -> int | None:
+        try:
+            with urllib.request.urlopen(self.url, timeout=self.timeout_s) as r:
+                s = json.load(r).get("sib16") or {}
+        except (OSError, ValueError):
+            return None
+        tr, b = s.get("time_reference"), s.get("boundary")
+        if not tr or not b:
+            return None
+        frames = round((gps_ns - int(tr["time_ns"])) / 10_000_000)
+        return (int(b["boundary_sfn"]) + frames) % 1024

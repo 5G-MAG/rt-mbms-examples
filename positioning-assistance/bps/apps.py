@@ -11,6 +11,7 @@ import urllib.request
 import numpy as np
 
 from . import geo, lab
+from .live import ModemSfn
 from .modem_prs import ModemPrs, ModemRefused
 from .publisher import Publisher
 from .rtd_monitor import RtdMonitor
@@ -49,7 +50,8 @@ def cmd_publish(a) -> None:
         svc, session = portal.create_push_session(spec)
         portal.set_state(svc, session, "Active")
         print(f"session {session} on service {svc} active", flush=True)
-    pub = Publisher(net, monitor, lambda body: xmbu.push(session, a.path, body), validity_s=a.validity)
+    sfn_at = ModemSfn(a.sfn_from_modem) if a.sfn_from_modem else None
+    pub = Publisher(net, monitor, lambda body: xmbu.push(session, a.path, body), validity_s=a.validity, sfn_at=sfn_at)
     end = time.time() + a.seconds if a.seconds else None
     while end is None or time.time() < end:
         now = lab.host_gps_ns(a.leap_seconds)
@@ -199,6 +201,7 @@ def main() -> None:
     p.add_argument("--validity", type=int, default=90)
     p.add_argument("--leap-seconds", type=int, default=18)
     p.add_argument("--seconds", type=float, default=0, help="stop after this long (0 = run until killed)")
+    p.add_argument("--sfn-from-modem", metavar="URL", help="state the reference cell's SFN at the time the RTDs hold (OMA-LPPe systemFrameNumber), taken from the SFN boundary and time in the modem's sib_info at this URL (lab: same host as the transmitter)")
     p.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended",
                    help="state this cell's cyclic prefix in the document (TS 37.355 cpLength); cells not named state none, which the UE reads as the serving cell's (repeatable)")
     u = sub.add_parser("ue")

@@ -129,6 +129,21 @@ class Chain(unittest.TestCase):
         self.assertLess(rmse, 1.5 * claimed)       # not optimistic
         self.assertGreater(rmse, 0.5 * claimed)    # not wildly pessimistic
 
+    def test_the_document_states_the_reference_sfn_when_the_broadcaster_can_say(self):
+        seen = []
+        self.pub._sfn_at = lambda t: (seen.append(t), 777)[1]
+        doc = json.loads(self.pub.publish_once(self.t_last))
+        self.assertEqual(doc["reference"]["position_calculation_info"], {"systemFrameNumber": "1100001001"})   # 777 as a 10 bit string
+        self.assertEqual(len(set(seen)), 1)                                            # asked for the instant the RTDs hold
+        self.assertEqual(AssistanceDocument.from_json(json.dumps(doc)).reference_sfn, 777)
+
+    def test_no_sfn_when_it_cannot_be_said(self):
+        for fn in (None, lambda t: None):
+            self.pub._sfn_at = fn
+            doc = json.loads(self.pub.publish_once(self.t_last))
+            self.assertNotIn("position_calculation_info", doc["reference"])
+            self.assertIsNone(AssistanceDocument.from_json(json.dumps(doc)).reference_sfn)
+
     def test_drift_in_the_document_matters(self):
         body = self.pub.publish_once(self.t_last)
         doc = json.loads(body)

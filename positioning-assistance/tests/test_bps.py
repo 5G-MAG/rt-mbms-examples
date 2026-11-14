@@ -93,6 +93,45 @@ class LppeCoding(unittest.TestCase):
         for old in ("latitude_deg", "rtd_ns", "std_ns", "height_m"):
             self.assertNotIn('"%s"' % old, json.dumps(raw))
 
+    def test_sfn_is_a_10_bit_string_and_range_checked(self):
+        import json
+        d = CellCyclicPrefix().doc()
+        d.reference_sfn = 1023
+        self.assertEqual(json.loads(d.to_json())["reference"]["position_calculation_info"]["systemFrameNumber"], "1111111111")
+        self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference_sfn, 1023)
+        d.reference_sfn = 0
+        self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference_sfn, 0)    # zero is a value, not an absent field
+        for bad in (-1, 1024):
+            d.reference_sfn = bad
+            with self.assertRaises(ValueError):
+                d.to_json()
+
+    def test_sfn_from_the_modems_boundary(self):
+        import http.server, json, threading
+        from bps.live import ModemSfn
+
+        class H(http.server.BaseHTTPRequestHandler):
+            body = {"sib16": {"time_reference": {"time_ns": 10**18}, "boundary": {"boundary_sfn": 1000}}}
+
+            def do_GET(self):
+                self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(H.body).encode())
+
+            def log_message(self, *a):
+                pass
+
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            f = ModemSfn(f"http://127.0.0.1:{srv.server_address[1]}/modem-api/sib_info")
+            self.assertEqual(f(10**18), 1000)
+            self.assertEqual(f(10**18 + 10_000_000 * 30), 6)                  # 30 frames later: 1030 mod 1024
+            self.assertEqual(f(10**18 - 10_000_000 * 1001), 1023)             # before the boundary, wrapping the other way: -1
+            H.body = {"sib16": {}}
+            self.assertIsNone(f(10**18))                                      # no boundary known
+        finally:
+            srv.shutdown(); srv.server_close()
+        self.assertIsNone(ModemSfn("http://127.0.0.1:9/none", timeout_s=0.2)(0))   # unreachable: None, not an exception
+
     def test_the_old_schema_is_refused(self):
         import json
         raw = json.loads(CellCyclicPrefix().doc().to_json())

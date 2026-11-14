@@ -42,11 +42,12 @@ class Publisher:
     """
 
     def __init__(self, network: Network, monitor: RtdMonitor, push: Callable[[bytes], None], validity_s: int = 90,
-                 backdate_s: int = 30):
+                 backdate_s: int = 30, sfn_at: Optional[Callable[[int], Optional[int]]] = None):
         if validity_s <= 0:
             raise ValueError("validity_s must be positive")
         self._network, self._monitor, self._push, self._validity_ns = network, monitor, push, int(validity_s * 1e9)
         self._backdate_ns = int(backdate_s * 1e9)
+        self._sfn_at = sfn_at   # the reference cell's SFN at a network time, if the broadcaster can say; the document then carries it with the RTDs
         self._last_version = 0
 
     def build(self, now_gps_ns: int) -> AssistanceDocument:
@@ -60,7 +61,11 @@ class Publisher:
             cell = site.as_cell()
             cell.rtd = rtds[site.phys_cell_id]
             neighbours.append(cell)
-        doc = AssistanceDocument(version, now_gps_ns - self._backdate_ns, now_gps_ns + self._validity_ns, self._network.reference.as_cell(), neighbours)
+        sfn = None
+        valid_at = {c.rtd.valid_at_gps_ns for c in neighbours}
+        if self._sfn_at is not None and len(valid_at) == 1:   # one SFN states one instant: only if every RTD holds at the same one
+            sfn = self._sfn_at(valid_at.pop())
+        doc = AssistanceDocument(version, now_gps_ns - self._backdate_ns, now_gps_ns + self._validity_ns, self._network.reference.as_cell(), neighbours, sfn)
         doc.validate()
         return doc
 
