@@ -34,6 +34,7 @@ class ModemPrs:
         self.sigma_ns = sigma_ns
         self.timeout_s = timeout_s
         self._pushed: Optional[str] = None
+        self._pushed_cells: Optional[str] = None   # what was pushed without the search windows: the part whose change makes the modem drop its results
         self._last_clock = -1
         self.last_reject = ""
 
@@ -42,10 +43,15 @@ class ModemPrs:
     def assistance_json(doc: AssistanceDocument) -> dict:
         cells = []
         for c in (doc.reference, *doc.neighbours):
-            cells.append({"cell_id": c.phys_cell_id, "cp_length": c.cp_length,
+            cells.append({"cell_id": c.phys_cell_id, "cp_length": c.cp_length or doc.reference.cp_length,
+                          "expected_rstd_ns": c.expected_rstd_ns, "expected_rstd_uncertainty_ns": c.expected_rstd_uncertainty_ns,
                           "prs": {"bandwidth_prb": c.prs.bandwidth_prb, "configuration_index": c.prs.configuration_index,
                                   "num_dl_frames": c.prs.num_dl_frames, "prs_id": c.prs.prs_id, "muting": c.prs.muting}})
         return {"reference_cell_id": doc.reference.phys_cell_id, "cells": cells}
+
+    @staticmethod
+    def _without_windows(body: dict) -> dict:
+        return {**body, "cells": [{k: v for k, v in c.items() if not k.startswith("expected_rstd")} for c in body["cells"]]}
 
     def _call(self, method: str, path: str, body: Optional[dict] = None):
         data = None if body is None else json.dumps(body).encode()
@@ -68,7 +74,10 @@ class ModemPrs:
             reason = (payload or {}).get("error", f"HTTP {status}") if isinstance(payload, dict) else f"HTTP {status}"
             raise ModemRefused(reason)
         self._pushed = json.dumps(body, sort_keys=True)
-        self._last_clock = -1
+        cells = json.dumps(self._without_windows(body), sort_keys=True)
+        if cells != self._pushed_cells:       # the modem keeps what it measured when only the windows were refreshed, so the ones already used must stay marked used
+            self._last_clock = -1
+        self._pushed_cells = cells
 
     def ensure(self, doc: AssistanceDocument) -> bool:
         """Pushes the document's PRS information unless the modem already has exactly that. Returns True if it pushed. A modem that has restarted (no assistance)

@@ -22,7 +22,7 @@ def make_network():
     sites = []
     for i, p in enumerate(CELLS_ENU):
         lat, lon, h = geo.enu_to_lla(ORIGIN_LLA, p)
-        sites.append(CellSite(i + 1, lat, lon, h, Prs(25, 2400 + i, 1)))
+        sites.append(CellSite(i + 1, lat, lon, h, Prs(25, 2400 + i, 1), cp_length="extended" if i == 0 else None))
     return Network(sites[0], tuple(sites[1:]))
 
 
@@ -32,11 +32,11 @@ def true_rtd_ns(truth, cell_index, t_ns):
     return base + drift * (t_ns - T0) / 1e9
 
 
-def monitoring(net, truth, n_epochs=60, spacing_s=10, noise_ns=20.0, seed=3):
+def monitoring(net, truth, n_epochs=60, spacing_s=10, noise_ns=20.0, seed=3, timestamp_sigma_ns=0.0):
     rng = np.random.default_rng(seed)
     lla = net.lla()
     monitor_lla = geo.enu_to_lla(ORIGIN_LLA, [1000.0, 500.0, 10.0])
-    mon = RtdMonitor(monitor_lla, lla, reference_id=1)
+    mon = RtdMonitor(monitor_lla, lla, reference_id=1, timestamp_sigma_ns=timestamp_sigma_ns)
     ids = sorted(lla)
     for k in range(n_epochs):
         t = T0 + k * spacing_s * 10**9
@@ -133,23 +133,64 @@ class Chain(unittest.TestCase):
         seen = []
         self.pub._sfn_at = lambda t: (seen.append(t), 777)[1]
         doc = json.loads(self.pub.publish_once(self.t_last))
-        self.assertEqual(doc["reference"]["position_calculation_info"], {"systemFrameNumber": "1100001001"})   # 777 as a 10 bit string
+        self.assertEqual(doc["reference"]["positionCalculationInfoRef"]["systemFrameNumber"], "1100001001")   # 777 as a 10 bit string
         self.assertEqual(len(set(seen)), 1)                                            # asked for the instant the RTDs hold
         self.assertEqual(AssistanceDocument.from_json(json.dumps(doc)).reference_sfn, 777)
+
+    def test_the_publisher_fills_what_the_ies_make_mandatory(self):
+        from bps.assistance import decode_expected
+        doc = json.loads(self.pub.publish_once(self.t_last))
+        for n in doc["neighbours"]:
+            info = n["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]
+            self.assertIn("expectedRSTD", info)
+            self.assertIn("expectedRSTD-Uncertainty", info)
+            self.assertNotIn("subframeOffset", n["otdoa-eNB-CellDataList"][0]["rtdInfo"])    # no site says it knows one
+        back = AssistanceDocument.from_json(json.dumps(doc))
+        # the window contains the RSTD a UE at the lab position gets from the document's own geometry and RTDs
+        ue = geo.enu_to_lla(ORIGIN_LLA, UE)
+        t = (back.valid_from_gps_ns + back.valid_until_gps_ns) // 2
+        for c in back.neighbours:
+            d = lambda x: np.linalg.norm(geo.lla_to_ecef(*ue) - geo.lla_to_ecef(x.latitude_deg, x.longitude_deg, x.height_m))
+            rstd = (d(c) - d(back.reference)) / C_MPS * 1e9 + c.rtd.at(t)
+            self.assertLessEqual(abs(rstd - c.expected_rstd_ns), c.expected_rstd_uncertainty_ns, c.phys_cell_id)
+
+    def test_the_reference_std_comes_from_the_monitor_when_it_knows_its_noise(self):
+        none = json.loads(self.pub.publish_once(self.t_last))
+        self.assertNotIn("rtdReferenceStd", none["reference"]["positionCalculationInfoRef"])
+        mon, t_last = monitoring(self.net, TRUTH, timestamp_sigma_ns=20.0)
+        pub = Publisher(self.net, mon, lambda body: None)
+        doc = json.loads(pub.publish_once(t_last))
+        self.assertEqual(doc["reference"]["positionCalculationInfoRef"]["rtdReferenceStd"], {"resolution": "ns-5", "quality": 4})
+
+    def test_subframe_offsets_from_the_sites_are_stated_and_the_ue_refuses_nonzero_ones(self):
+        import dataclasses
+        sites = tuple(dataclasses.replace(s, subframe_offset=0) for s in self.net.neighbours)
+        pub = Publisher(Network(self.net.reference, sites), self.mon, lambda body: None)
+        raw = pub.publish_once(self.t_last)
+        for n in json.loads(raw)["neighbours"]:
+            self.assertEqual(n["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"], 0)
+        self.assertEqual(AssistanceStore().ingest(raw), "accepted")
+        bad = json.loads(raw)
+        bad["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 3
+        self.assertIn("subframeOffset 3", AssistanceStore().ingest(json.dumps(bad).encode()))
+        bad = json.loads(raw)
+        bad["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"] = 2
+        self.assertIn("slotNumberOffset 2", AssistanceStore().ingest(json.dumps(bad).encode()))
 
     def test_no_sfn_when_it_cannot_be_said(self):
         for fn in (None, lambda t: None):
             self.pub._sfn_at = fn
             doc = json.loads(self.pub.publish_once(self.t_last))
-            self.assertNotIn("position_calculation_info", doc["reference"])
+            self.assertNotIn("systemFrameNumber", doc["reference"]["positionCalculationInfoRef"])
             self.assertIsNone(AssistanceDocument.from_json(json.dumps(doc)).reference_sfn)
 
     def test_drift_in_the_document_matters(self):
         body = self.pub.publish_once(self.t_last)
         doc = json.loads(body)
         for c in doc["neighbours"]:
-            c["rtd_info"]["fineRTDdriftRate"] = 0
-            c["rtd_info"]["x_drift_std_ns_per_s"] = 0.0
+            rtd = c["otdoa-eNB-CellDataList"][0]["rtdInfo"]
+            rtd["fineRTDdriftRate"] = 0
+            rtd["x_drift_std_ns_per_s"] = 0.0
         zeroed = json.dumps(doc).encode()
         errs = []
         for raw in (body, zeroed):
@@ -199,7 +240,7 @@ class Chain(unittest.TestCase):
         self.assertTrue(store.ingest(b"{not json").startswith("rejected"))
         broken = json.loads(second)
         broken["version"] += 5
-        broken["neighbours"][0]["prs"]["configuration_index"] = 3000          # reserved index
+        broken["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["prsInfo"]["prs-ConfigurationIndex"] = 3000          # reserved index
         self.assertTrue(store.ingest(json.dumps(broken).encode()).startswith("rejected"))
         self.assertEqual(store.current(self.t_last + 2 * 10**9).version, json.loads(second)["version"])
 

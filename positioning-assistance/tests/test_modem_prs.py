@@ -6,7 +6,7 @@ import unittest
 import numpy as np
 
 from bps import geo
-from bps.assistance import AssistanceDocument, Cell, Prs, Rtd
+from bps.assistance import AssistanceDocument, Cell, Prs, Rtd, fill_expected_rstd
 from bps.modem_prs import ModemPrs, ModemRefused
 from bps.publisher import Publisher
 from bps.ue import AssistanceStore, NetworkClock, Positioner
@@ -61,10 +61,12 @@ def measurement(clock_ns, cells, tti=0):
 
 def small_doc(version=1, muting=None, prs_id=None, bandwidth=25):
     prs = Prs(bandwidth, 2435, 1, prs_id=prs_id, muting=muting)
-    ref = Cell(1, 46.0, 6.0, 400.0, prs)
+    ref = Cell(1, 46.0, 6.0, 400.0, prs, cp_length="extended")
     n1 = Cell(2, 46.05, 6.1, 400.0, Prs(25, 2435, 1), Rtd(1000.0, 5.0, 10**18))
     n2 = Cell(3, 46.1, 6.0, 400.0, Prs(25, 2435, 1), Rtd(-2000.0, 5.0, 10**18))
-    return AssistanceDocument(version, 0, 2 * 10**18, ref, [n1, n2])
+    doc = AssistanceDocument(version, 0, 2 * 10**18, ref, [n1, n2])
+    fill_expected_rstd(doc)
+    return doc
 
 
 class ModemPrsTests(unittest.TestCase):
@@ -99,7 +101,17 @@ class ModemPrsTests(unittest.TestCase):
         doc.neighbours[0].cp_length = "normal"
         doc.reference.cp_length = "extended"
         j = ModemPrs.assistance_json(doc)
-        self.assertEqual([c["cp_length"] for c in j["cells"]], ["extended", "normal", None])   # absent: the serving cell's, left for the modem to resolve
+        self.assertEqual([c["cp_length"] for c in j["cells"]], ["extended", "normal", "extended"])   # a neighbour that states none has the reference cell's
+
+    def test_the_search_window_of_each_neighbour_goes_down(self):
+        doc = AssistanceDocument.from_json(small_doc().to_json())      # as a UE has it: coded, so the values are the coded ones
+        j = ModemPrs.assistance_json(doc)
+        self.assertIsNone(j["cells"][0]["expected_rstd_ns"])             # the reference cell has none
+        self.assertIsNone(j["cells"][0]["expected_rstd_uncertainty_ns"])
+        for c, n in zip(j["cells"][1:], doc.neighbours):
+            self.assertEqual((c["expected_rstd_ns"], c["expected_rstd_uncertainty_ns"]), (n.expected_rstd_ns, n.expected_rstd_uncertainty_ns))
+            self.assertGreater(c["expected_rstd_uncertainty_ns"], 0.0)
+        json.dumps(j)
 
     def test_no_position_or_timing_goes_to_the_modem(self):
         text = json.dumps(ModemPrs.assistance_json(small_doc()))
@@ -130,6 +142,19 @@ class ModemPrsTests(unittest.TestCase):
         _Modem.state["assistance"] = None
         self.assertTrue(self.prs.ensure(small_doc(version=3, muting="01")))
         self.assertEqual(len(_Modem.state["puts"]), 3)
+
+    def test_a_window_refresh_is_pushed_but_does_not_make_used_measurements_new_again(self):
+        doc = small_doc()
+        self.prs.push(doc)
+        self.prs._last_clock = 12345                                      # measurements up to here were used
+        doc2 = small_doc(version=2)
+        doc2.neighbours[0].rtd = Rtd(1100.0, 5.0, 10**18)
+        fill_expected_rstd(doc2)                                          # the windows follow the new RTD
+        self.assertTrue(self.prs.ensure(doc2))                            # different values, so pushed
+        self.assertEqual(len(_Modem.state["puts"]), 2)
+        self.assertEqual(self.prs._last_clock, 12345)                     # the modem keeps its results on a window-only change
+        self.prs.push(small_doc(version=3, muting="01"))                  # a change of the PRS information: the modem drops its results
+        self.assertEqual(self.prs._last_clock, -1)
 
     # -- what is taken back
     def test_rstd_against_the_reference_cell_in_seconds(self):

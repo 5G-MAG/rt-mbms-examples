@@ -4,6 +4,8 @@ Field names follow the TS 37.355 V19.3.0 OTDOA assistance IEs where one exists (
 prs-ConfigurationIndex, numDL-Frames, expectedRSTD). The RTD and the cell positions follow OMA-TS-LPPe V2.0 (2020-08-04, candidate):
 the RTD as `rtdInfo` (fineRTD in units of 10 ns, fineRTDstd as an RTDquality, fineRTDdriftRate in ns/s), the reference cell's position as
 an EllipsoidPointWithAltitude (TS 23.032 V19.0.0 clause 6.1 and 6.3, ASN.1 of TS 37.355) and each neighbour's as an OMA-LPPe-RelativeLocation to it.
+The layout nests the IEs as OMA-LPPe does (see `to_json`), with the ASN.1 field names, and leaves out what the conditions of the IEs say to leave out (a
+neighbour's cpLength and prsInfo when they are the reference cell's); the neighbours carry the mandatory expectedRSTD and expectedRSTD-Uncertainty, the search window.
 The in-memory `Cell` and `Rtd` hold plain numbers; `to_json` and `from_json` do the coding and so the quantisation (a document read back is what a UE
 sees). Fields starting with `x_` are this prototype's own, not LPPe. The container (schema, version, validity window) is also this prototype's:
 SPEC-CLAIMS.md "OMA LPPe".
@@ -19,7 +21,7 @@ import numpy as np
 from . import geo
 from .timebase import TS_S, prs_period_offset
 
-SCHEMA = "bps-assistance/1-draft"  # [design] draft, versioned so a UE can refuse what it does not know (0-draft had its own RTD and position blocks)
+SCHEMA = "bps-assistance/2-draft"  # [design] draft, versioned so a UE can refuse what it does not know (0: own RTD and position blocks; 1: LPPe values in a flat layout)
 
 # [spec] TS 37.355 V19.3.0 clause 6.5.1.2 PRS-Info: prs-Bandwidth {n6,...,n100}, numDL-Frames {sf-1,sf-2,sf-4,sf-6}.
 _PRS_BANDWIDTH_PRB = (6, 15, 25, 50, 75, 100)
@@ -35,6 +37,7 @@ class Rtd:
     valid_at_gps_ns: int  # network time at which rtd_ns holds
     drift_ns_per_s: float = 0.0
     drift_std_ns_per_s: float = 0.0  # uncertainty of the drift rate; makes the RTD uncertainty grow with age
+    subframe_offset: int | None = None  # rtdInfo subframeOffset: whole subframes between SFN=0 of the reference and of this cell; absent: not known
 
     def at(self, gps_ns: int) -> float:
         return self.rtd_ns + self.drift_ns_per_s * (gps_ns - self.valid_at_gps_ns) / 1e9
@@ -72,7 +75,11 @@ class Cell:
     height_m: float
     prs: Prs
     rtd: Rtd | None = None  # absent on the reference cell
-    cp_length: str | None = None  # "normal" or "extended": the cell's cyclic prefix (TS 37.355 cpLength of OTDOA assistance data, per cell); absent: the serving cell's
+    cp_length: str | None = None  # "normal" or "extended": the cell's cyclic prefix (TS 37.355 cpLength); mandatory on the reference cell, absent on a neighbour: the reference cell's
+    ecgi: tuple[str, str, int] | None = None  # (mcc, mnc, 28 bit cell identity): cellGlobalId, optional
+    expected_rstd_ns: float | None = None  # neighbours: expectedRSTD, the RSTD expected at the centre of the service area, in ns
+    expected_rstd_uncertainty_ns: float | None = None  # neighbours: expectedRSTD-Uncertainty, the half width of the search window around it, in ns
+    slot_number_offset: int | None = None  # neighbours: slotNumberOffset 0..19; absent: the slot timing is the reference cell's
 
 
 # --- coding of the positions and the RTD (see the module docstring)
@@ -132,31 +139,121 @@ def decode_relative(ref_lla: tuple[float, float, float], rel: dict) -> tuple[flo
     return float(lat), float(lon), ref_lla[2] + alt
 
 
+def encode_quality(std_ns: float) -> dict:
+    """OMA-LPPe-OTDOA-RTDquality: the finest resolution (5, 10, 50 or 100 ns) with which the deviation fits in `quality` 0..127."""
+    for name, res in _RTD_RESOLUTION_NS.items():
+        q = round(std_ns / res)
+        if q <= 127:
+            return {"resolution": name, "quality": q}
+    raise ValueError(f"a standard deviation of {std_ns:.0f} ns does not fit RTDquality (at most 127 x 100 ns)")
+
+
+def decode_quality(d: dict) -> float:
+    return float(d["quality"] * _RTD_RESOLUTION_NS[d["resolution"]])
+
+
 def encode_rtd(rtd: "Rtd") -> dict:
     """rtdInfo (OMA-LPPe-OTDOA-CellData): fineRTD in units of 10 ns, taken as the offset of the neighbour's next subframe start after the reference's (0 to under 1 ms),
-    fineRTDstd as an RTDquality, fineRTDdriftRate in ns/s. subframeOffset is not provided (optional, "if available": the grids here are tied to the cell acquisition
-    subframes, no frame offset is known). The error of the coding (10 ns steps, 1 ns/s steps) is added to the standard deviations."""
+    fineRTDstd as an RTDquality, fineRTDdriftRate in ns/s, subframeOffset when known (optional, "if available"). The error of the coding (10 ns steps, 1 ns/s steps)
+    is added to the standard deviations."""
     fine = round((rtd.rtd_ns % 1_000_000) / _FINE_RTD_STEP_NS) % 100_000
-    std = math.hypot(rtd.std_ns, _FINE_RTD_STEP_NS / math.sqrt(12))
-    for name, res in _RTD_RESOLUTION_NS.items():
-        q = round(std / res)
-        if q <= 127:
-            break
-    else:
-        raise ValueError(f"an RTD standard deviation of {std:.0f} ns does not fit RTDquality (at most 127 x 100 ns)")
     drift = round(rtd.drift_ns_per_s)
     if not -100 <= drift <= 100:
         raise ValueError(f"an RTD drift rate of {rtd.drift_ns_per_s:.1f} ns/s does not fit fineRTDdriftRate (-100..100)")
-    return {"fineRTD": fine, "fineRTDstd": {"resolution": name, "quality": q}, "fineRTDdriftRate": drift,
-            "x_drift_std_ns_per_s": math.hypot(rtd.drift_std_ns_per_s, 1 / math.sqrt(12)), "x_valid_at_gps_ns": rtd.valid_at_gps_ns}
+    out = {}
+    if rtd.subframe_offset is not None:
+        if not 0 <= rtd.subframe_offset <= 10229:
+            raise ValueError("subframeOffset must be 0..10229")
+        out["subframeOffset"] = rtd.subframe_offset
+    out.update({"fineRTD": fine, "fineRTDstd": encode_quality(math.hypot(rtd.std_ns, _FINE_RTD_STEP_NS / math.sqrt(12))), "fineRTDdriftRate": drift,
+                "x_drift_std_ns_per_s": math.hypot(rtd.drift_std_ns_per_s, 1 / math.sqrt(12)), "x_valid_at_gps_ns": rtd.valid_at_gps_ns})
+    return out
 
 
 def decode_rtd(info: dict) -> "Rtd":
     ns = info["fineRTD"] * _FINE_RTD_STEP_NS
     if ns >= 500_000:
         ns -= 1_000_000       # the UE takes the closest subframe, so the offset is used within +-0.5 ms
-    std = info["fineRTDstd"]["quality"] * _RTD_RESOLUTION_NS[info["fineRTDstd"]["resolution"]]
-    return Rtd(ns, float(std), info["x_valid_at_gps_ns"], float(info.get("fineRTDdriftRate", 0)), float(info.get("x_drift_std_ns_per_s", 0.0)))
+    return Rtd(ns, decode_quality(info["fineRTDstd"]), info["x_valid_at_gps_ns"], float(info.get("fineRTDdriftRate", 0)),
+               float(info.get("x_drift_std_ns_per_s", 0.0)), info.get("subframeOffset"))
+
+
+def encode_prs_info(p: "Prs") -> dict:
+    """PRS-Info of TS 37.355 V19.3.0 clause 6.5.1.2: prs-Bandwidth, prs-ConfigurationIndex, numDL-Frames, prs-MutingInfo-r9 (a CHOICE by length) and prsID-r14."""
+    out = {"prs-Bandwidth": f"n{p.bandwidth_prb}", "prs-ConfigurationIndex": p.configuration_index, "numDL-Frames": f"sf-{p.num_dl_frames}"}
+    if p.muting is not None:
+        n = len(p.muting)
+        out["prs-MutingInfo-r9"] = {f"po{n}-r9" if n <= 16 else f"po{n}-v1420": p.muting}
+    if p.prs_id is not None:
+        out["prsID-r14"] = p.prs_id
+    return out
+
+
+def decode_prs_info(d: dict) -> "Prs":
+    muting = None
+    if "prs-MutingInfo-r9" in d:
+        (muting,) = d["prs-MutingInfo-r9"].values()
+    return Prs(int(d["prs-Bandwidth"][1:]), d["prs-ConfigurationIndex"], int(d["numDL-Frames"][3:]), d.get("prsID-r14"), muting)
+
+
+def encode_ecgi(ecgi: tuple[str, str, int]) -> dict:
+    """ECGI of TS 37.355 V19.3.0: mcc as three digits, mnc as two or three, cellidentity as a 28 bit string."""
+    mcc, mnc, ci = ecgi
+    if not (len(mcc) == 3 and len(mnc) in (2, 3) and (mcc + mnc).isdigit() and 0 <= ci < 2**28):
+        raise ValueError("an ECGI needs a 3 digit MCC, a 2 or 3 digit MNC and a cell identity below 2^28")
+    return {"mcc": [int(c) for c in mcc], "mnc": [int(c) for c in mnc], "cellidentity": format(ci, "028b")}
+
+
+def decode_ecgi(d: dict) -> tuple[str, str, int]:
+    return "".join(map(str, d["mcc"])), "".join(map(str, d["mnc"])), int(d["cellidentity"], 2)
+
+
+_RSTD_UNIT_NS = 3 * TS_S * 1e9    # expectedRSTD and its uncertainty are in units of 3 Ts
+
+
+def encode_expected(expected_ns: float, uncertainty_ns: float) -> tuple[int, int]:
+    """expectedRSTD (offset 8192, 3 Ts) and expectedRSTD-Uncertainty (3 Ts, rounded up so the window still covers what it was meant to)."""
+    value = round(expected_ns / _RSTD_UNIT_NS) + 8192
+    unc = math.ceil(uncertainty_ns / _RSTD_UNIT_NS - 1e-9)
+    if not 0 <= value <= 16383:
+        raise ValueError(f"expectedRSTD of {expected_ns:.0f} ns does not fit 0..16383 (+-{8192 * _RSTD_UNIT_NS:.0f} ns)")
+    if not 0 <= unc <= 1023:
+        raise ValueError(f"expectedRSTD-Uncertainty of {uncertainty_ns:.0f} ns does not fit 0..1023 (at most {1023 * _RSTD_UNIT_NS:.0f} ns)")
+    return value, unc
+
+
+def decode_expected(value: int, unc: int) -> tuple[float, float]:
+    return (value - 8192) * _RSTD_UNIT_NS, unc * _RSTD_UNIT_NS
+
+
+def expected_rstd_window(ref_lla, cell_lla, centre_lla, radius_m: float, rtd: "Rtd", t_from_ns: int, t_until_ns: int) -> tuple[float, float]:
+    """expectedRSTD and its uncertainty, in ns, for one neighbour. [design] The location server's a-priori estimate of the UE position is the centre of the service area
+    and the uncertainty covers any UE within `radius_m` of it (the RSTD changes by at most 2 radius / c), the RTD drifting over the validity window and three of its
+    standard deviations (TS 37.355 leaves the choice to the server: "related to the location server's a-priori estimation of the target device location")."""
+    c_ns = 299_792_458.0 / 1e9
+
+    def dist(a, b):
+        return float(np.linalg.norm(geo.lla_to_ecef(*a) - geo.lla_to_ecef(*b)))
+
+    t_mid = (t_from_ns + t_until_ns) // 2
+    geometric = (dist(centre_lla, cell_lla) - dist(centre_lla, ref_lla)) / c_ns
+    expected = geometric + rtd.at(t_mid)
+    drift = max(abs(rtd.at(t) - rtd.at(t_mid)) for t in (t_from_ns, t_until_ns))
+    sigma = max(rtd.std_at(t) for t in (t_from_ns, t_until_ns))
+    return expected, 2.0 * radius_m / c_ns + drift + 3.0 * sigma
+
+
+def fill_expected_rstd(doc: "AssistanceDocument", centre_lla=None, radius_m: float | None = None) -> None:
+    """Sets expectedRSTD and its uncertainty on every neighbour of the document. The default service area is the one bounded by the cells: its centre is the mean of
+    the cell positions and its radius the largest distance from it to a cell."""
+    llas = [(c.latitude_deg, c.longitude_deg, c.height_m) for c in (doc.reference, *doc.neighbours)]
+    if centre_lla is None:
+        centre_lla = tuple(float(x) for x in geo.ecef_to_lla(np.mean([geo.lla_to_ecef(*p) for p in llas], axis=0)))
+    if radius_m is None:
+        radius_m = max(float(np.linalg.norm(geo.lla_to_ecef(*p) - geo.lla_to_ecef(*centre_lla))) for p in llas)
+    ref_lla = llas[0]
+    for c, lla in zip(doc.neighbours, llas[1:]):
+        c.expected_rstd_ns, c.expected_rstd_uncertainty_ns = expected_rstd_window(ref_lla, lla, centre_lla, radius_m, c.rtd, doc.valid_from_gps_ns, doc.valid_until_gps_ns)
 
 
 @dataclass
@@ -167,6 +264,7 @@ class AssistanceDocument:
     reference: Cell
     neighbours: list[Cell] = field(default_factory=list)
     reference_sfn: int | None = None   # the reference cell's SFN at the time the RTDs hold (OMA-LPPe-OTDOA-PositionCalculationInfoRef systemFrameNumber, BIT STRING (SIZE(10)))
+    reference_rtd_std_ns: float | None = None   # rtdReferenceStd: the standard deviation of the reference cell's timing used to determine the RTDs
 
     def validate(self) -> None:
         cells = [self.reference, *self.neighbours]
@@ -189,6 +287,8 @@ class AssistanceDocument:
                 raise ValueError("the PRS muting sequence must be 2, 4, 8, ... or 1024 characters of 0 and 1")
             if not (-90 <= c.latitude_deg <= 90 and -180 <= c.longitude_deg <= 180):
                 raise ValueError("latitude/longitude out of range")
+            if c.slot_number_offset is not None and not 0 <= c.slot_number_offset <= 19:
+                raise ValueError("slotNumberOffset must be 0..19")
         if self.reference.rtd is not None:
             raise ValueError("the reference cell has no RTD (it defines zero)")
         for c in self.neighbours:
@@ -202,41 +302,71 @@ class AssistanceDocument:
             raise ValueError("validity window is empty")
 
     def to_json(self) -> str:
+        """The document as the IEs of OMA-TS-LPPe V2.0 and TS 37.355 nest them: OMA-LPPe-OTDOA-ReferenceCellInfo for the reference cell and one
+        OMA-LPPe-OTDOA-NeighbourCellInfoElement-eNB per neighbour (a neighbour with the reference cell's cyclic prefix or PRS-Info leaves them out, as the conditions
+        of the IEs require). The container (schema, version, validity window) is this prototype's own."""
         self.validate()
-        ref_lla = decode_point(encode_point(self.reference.latitude_deg, self.reference.longitude_deg, self.reference.height_m))
+        ref = self.reference
+        if ref.cp_length is None:
+            raise ValueError("cpLength is mandatory in OTDOA-ReferenceCellInfo: state the reference cell's cyclic prefix")
+        ref_lla = decode_point(encode_point(ref.latitude_deg, ref.longitude_deg, ref.height_m))
+        ref_info = {"physCellId": ref.phys_cell_id}
+        if ref.ecgi is not None:
+            ref_info["cellGlobalId"] = encode_ecgi(ref.ecgi)
+        ref_info["cpLength"] = ref.cp_length
+        ref_info["prsInfo"] = encode_prs_info(ref.prs)
+        calc = {}
+        if self.reference_sfn is not None:
+            calc["systemFrameNumber"] = format(self.reference_sfn, "010b")
+        if self.reference_rtd_std_ns is not None:
+            calc["rtdReferenceStd"] = encode_quality(self.reference_rtd_std_ns)
+        calc["cellLocation"] = {"reference-point": {"referencePointGeographicLocation": {"location3D": encode_point(ref.latitude_deg, ref.longitude_deg, ref.height_m)}}}
 
-        def cell(c: Cell, is_ref: bool) -> dict:
-            out = {"phys_cell_id": c.phys_cell_id, "cp_length": c.cp_length,
-                   "prs": {"bandwidth_prb": c.prs.bandwidth_prb, "configuration_index": c.prs.configuration_index, "num_dl_frames": c.prs.num_dl_frames,
-                           "prs_id": c.prs.prs_id, "muting": c.prs.muting}}
-            if is_ref:
-                out["location"] = encode_point(c.latitude_deg, c.longitude_deg, c.height_m)
-                if self.reference_sfn is not None:
-                    out["position_calculation_info"] = {"systemFrameNumber": format(self.reference_sfn, "010b")}
-            else:
-                out["relative_location"] = encode_relative(ref_lla, (c.latitude_deg, c.longitude_deg, c.height_m))
-                out["rtd_info"] = encode_rtd(c.rtd)
-            return out
+        def neighbour(c: Cell) -> dict:
+            if c.expected_rstd_ns is None or c.expected_rstd_uncertainty_ns is None:
+                raise ValueError(f"cell {c.phys_cell_id}: expectedRSTD and expectedRSTD-Uncertainty are mandatory (see fill_expected_rstd)")
+            info = {"physCellId": c.phys_cell_id}
+            if c.ecgi is not None:
+                info["cellGlobalId"] = encode_ecgi(c.ecgi)
+            if c.cp_length is not None and c.cp_length != ref.cp_length:
+                info["cpLength"] = c.cp_length
+            if c.prs != ref.prs:
+                info["prsInfo"] = encode_prs_info(c.prs)
+            if c.slot_number_offset is not None:
+                info["slotNumberOffset"] = c.slot_number_offset
+            info["expectedRSTD"], info["expectedRSTD-Uncertainty"] = encode_expected(c.expected_rstd_ns, c.expected_rstd_uncertainty_ns)
+            return {"relative-Location": encode_relative(ref_lla, (c.latitude_deg, c.longitude_deg, c.height_m)),
+                    "otdoa-eNB-CellDataList": [{"otdoa-NeighbourCellInfoElement": info, "rtdInfo": encode_rtd(c.rtd)}]}
 
         return json.dumps({"schema": SCHEMA, "version": self.version, "valid_from_gps_ns": self.valid_from_gps_ns,
-                           "valid_until_gps_ns": self.valid_until_gps_ns, "reference": cell(self.reference, True),
-                           "neighbours": [cell(c, False) for c in self.neighbours]}, indent=1)
+                           "valid_until_gps_ns": self.valid_until_gps_ns,
+                           "reference": {"referenceCellInfo": ref_info, "positionCalculationInfoRef": calc},
+                           "neighbours": [neighbour(c) for c in self.neighbours]}, indent=1)
 
     @staticmethod
     def from_json(text: str) -> "AssistanceDocument":
         raw = json.loads(text)
         if raw.get("schema") != SCHEMA:
             raise ValueError(f"unknown schema {raw.get('schema')!r}")
-        ref_lla = decode_point(raw["reference"]["location"])
-
-        def cell(d: dict, is_ref: bool) -> Cell:
-            lla = ref_lla if is_ref else decode_relative(ref_lla, d["relative_location"])
-            return Cell(d["phys_cell_id"], lla[0], lla[1], lla[2], Prs(**d["prs"]), None if is_ref else decode_rtd(d["rtd_info"]), d.get("cp_length"))
-
-        sfn = (raw["reference"].get("position_calculation_info") or {}).get("systemFrameNumber")
-        doc = AssistanceDocument(raw["version"], raw["valid_from_gps_ns"], raw["valid_until_gps_ns"],
-                                 cell(raw["reference"], True), [cell(c, False) for c in raw["neighbours"]],
-                                 None if sfn is None else int(sfn, 2))
+        rinfo, calc = raw["reference"]["referenceCellInfo"], raw["reference"]["positionCalculationInfoRef"]
+        ref_point = calc["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"]
+        ref_lla = decode_point(ref_point)
+        prs = decode_prs_info(rinfo["prsInfo"])
+        ref = Cell(rinfo["physCellId"], ref_lla[0], ref_lla[1], ref_lla[2], prs, None, rinfo["cpLength"],
+                   decode_ecgi(rinfo["cellGlobalId"]) if "cellGlobalId" in rinfo else None)
+        neighbours = []
+        for el in raw["neighbours"]:
+            lla = decode_relative(ref_lla, el["relative-Location"])
+            for cd in el["otdoa-eNB-CellDataList"]:       # co-located cells share one location
+                i = cd["otdoa-NeighbourCellInfoElement"]
+                expected, unc = decode_expected(i["expectedRSTD"], i["expectedRSTD-Uncertainty"])
+                neighbours.append(Cell(i["physCellId"], lla[0], lla[1], lla[2], decode_prs_info(i["prsInfo"]) if "prsInfo" in i else prs, decode_rtd(cd["rtdInfo"]),
+                                       i.get("cpLength", rinfo["cpLength"]), decode_ecgi(i["cellGlobalId"]) if "cellGlobalId" in i else None, expected, unc,
+                                       i.get("slotNumberOffset")))
+        sfn = calc.get("systemFrameNumber")
+        doc = AssistanceDocument(raw["version"], raw["valid_from_gps_ns"], raw["valid_until_gps_ns"], ref, neighbours,
+                                 None if sfn is None else int(sfn, 2),
+                                 decode_quality(calc["rtdReferenceStd"]) if "rtdReferenceStd" in calc else None)
         doc.validate()
         return doc
 

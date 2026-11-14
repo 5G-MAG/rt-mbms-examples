@@ -5,7 +5,7 @@ import numpy as np
 
 from bps import geo
 from bps import live
-from bps.assistance import AssistanceDocument, Cell, Prs, Rtd, expected_rstd_field, expected_rstd_from_field
+from bps.assistance import AssistanceDocument, Cell, Prs, Rtd, expected_rstd_field, expected_rstd_from_field, fill_expected_rstd
 from bps.sim import CELLS_ENU, ORIGIN_LLA, PRS_INDEX, build_document, quantise_rstd_ts
 from bps.solver import solve_rstd, ue_time_ns
 from bps.timebase import (C_MPS, SUBFRAME_NS, TS_S, TimeAnchor, _PRS_TABLE, gps_ns_to_sib16_r15_fields, is_prs_occasion_start,
@@ -82,22 +82,142 @@ class LppeCoding(unittest.TestCase):
             encode_rtd(Rtd(0.0, 5.0, 0, drift_ns_per_s=101.0))
         self.assertEqual(encode_rtd(Rtd(0.0, 5.0, 0, drift_ns_per_s=100.4))["fineRTDdriftRate"], 100)
 
-    def test_the_wire_has_the_lppe_names_and_not_the_old_blocks(self):
+    def test_the_wire_nests_the_lppe_ies(self):
         import json
         raw = json.loads(CellCyclicPrefix().doc().to_json())
-        self.assertEqual(raw["schema"], "bps-assistance/1-draft")
-        self.assertEqual(set(raw["reference"]["location"]), {"latitudeSign", "degreesLatitude", "degreesLongitude", "altitudeDirection", "altitude"})
-        n = raw["neighbours"][0]
-        self.assertEqual(set(n["rtd_info"]) - {"x_drift_std_ns_per_s", "x_valid_at_gps_ns"}, {"fineRTD", "fineRTDstd", "fineRTDdriftRate"})
-        self.assertIn("relativeNorth", n["relative_location"])
-        for old in ("latitude_deg", "rtd_ns", "std_ns", "height_m"):
+        self.assertEqual(raw["schema"], "bps-assistance/2-draft")
+        ref = raw["reference"]
+        self.assertEqual(set(ref), {"referenceCellInfo", "positionCalculationInfoRef"})         # OMA-LPPe-OTDOA-ReferenceCellInfo
+        self.assertEqual(set(ref["referenceCellInfo"]), {"physCellId", "cpLength", "prsInfo"})
+        self.assertEqual(ref["referenceCellInfo"]["prsInfo"], {"prs-Bandwidth": "n25", "prs-ConfigurationIndex": 2435, "numDL-Frames": "sf-1"})
+        loc = ref["positionCalculationInfoRef"]["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"]
+        self.assertEqual(set(loc), {"latitudeSign", "degreesLatitude", "degreesLongitude", "altitudeDirection", "altitude"})
+        n = raw["neighbours"][0]                                                                   # OMA-LPPe-OTDOA-NeighbourCellInfoElement-eNB
+        self.assertEqual(set(n), {"relative-Location", "otdoa-eNB-CellDataList"})
+        self.assertIn("relativeNorth", n["relative-Location"])
+        cd = n["otdoa-eNB-CellDataList"][0]                                                        # OMA-LPPe-OTDOA-CellData
+        self.assertEqual(set(cd), {"otdoa-NeighbourCellInfoElement", "rtdInfo"})
+        self.assertEqual(set(cd["rtdInfo"]) - {"x_drift_std_ns_per_s", "x_valid_at_gps_ns"}, {"fineRTD", "fineRTDstd", "fineRTDdriftRate"})
+        self.assertEqual(set(cd["otdoa-NeighbourCellInfoElement"]), {"physCellId", "expectedRSTD", "expectedRSTD-Uncertainty"})   # same prsInfo and cpLength: left out
+        for old in ("latitude_deg", "rtd_ns", "std_ns", "height_m", "cp_length", "phys_cell_id"):
             self.assertNotIn('"%s"' % old, json.dumps(raw))
+
+    def test_prs_info_as_the_asn1_names_it(self):
+        from bps.assistance import Prs, encode_prs_info, decode_prs_info
+        for prs, want in ((Prs(25, 2435, 1), {"prs-Bandwidth": "n25", "prs-ConfigurationIndex": 2435, "numDL-Frames": "sf-1"}),
+                          (Prs(6, 0, 6, 300, "0110"), {"prs-Bandwidth": "n6", "prs-ConfigurationIndex": 0, "numDL-Frames": "sf-6", "prs-MutingInfo-r9": {"po4-r9": "0110"}, "prsID-r14": 300}),
+                          (Prs(100, 2554, 4, None, "01" * 8), {"prs-Bandwidth": "n100", "prs-ConfigurationIndex": 2554, "numDL-Frames": "sf-4", "prs-MutingInfo-r9": {"po16-r9": "01" * 8}}),
+                          (Prs(15, 5, 2, 0, "1" * 32), {"prs-Bandwidth": "n15", "prs-ConfigurationIndex": 5, "numDL-Frames": "sf-2", "prs-MutingInfo-r9": {"po32-v1420": "1" * 32}, "prsID-r14": 0})):
+            self.assertEqual(encode_prs_info(prs), want)
+            self.assertEqual(decode_prs_info(want), prs)
+
+    def test_a_neighbour_with_another_prs_info_states_it(self):
+        import json
+        d = CellCyclicPrefix().doc()
+        d.neighbours[0].prs = Prs(25, 2435, 1, 77, "10")
+        raw = json.loads(d.to_json())
+        self.assertEqual(raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["prsInfo"]["prsID-r14"], 77)
+        self.assertEqual(AssistanceDocument.from_json(d.to_json()).neighbours[0].prs, Prs(25, 2435, 1, 77, "10"))
+
+    def test_ecgi(self):
+        import json
+        from bps.assistance import encode_ecgi, decode_ecgi
+        self.assertEqual(encode_ecgi(("901", "56", 0x19B01)), {"mcc": [9, 0, 1], "mnc": [5, 6], "cellidentity": format(0x19B01, "028b")})
+        self.assertEqual(decode_ecgi(encode_ecgi(("001", "010", 2**28 - 1))), ("001", "010", 2**28 - 1))
+        for bad in (("90", "56", 1), ("901", "5", 1), ("901", "56", 2**28), ("9o1", "56", 1)):
+            with self.assertRaises(ValueError):
+                encode_ecgi(bad)
+        d = CellCyclicPrefix().doc()
+        d.reference.ecgi = ("901", "56", 0x19B01)
+        raw = json.loads(d.to_json())
+        self.assertEqual(raw["reference"]["referenceCellInfo"]["cellGlobalId"]["mnc"], [5, 6])
+        self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference.ecgi, ("901", "56", 0x19B01))
+        self.assertIsNone(AssistanceDocument.from_json(CellCyclicPrefix().doc().to_json()).reference.ecgi)
+
+    def test_expected_rstd_coding(self):
+        from bps.assistance import encode_expected, decode_expected
+        unit = 3 * TS_S * 1e9
+        self.assertEqual(encode_expected(0.0, 0.0), (8192, 0))
+        self.assertEqual(encode_expected(unit, unit * 2.2), (8193, 3))                    # the uncertainty is rounded up: the window must still cover
+        self.assertEqual(encode_expected(-unit * 8192, unit * 1023), (0, 1023))
+        e, u = decode_expected(8195, 4)
+        self.assertAlmostEqual(e, 3 * unit, delta=1e-6)
+        self.assertAlmostEqual(u, 4 * unit, delta=1e-6)
+        for bad in ((unit * 8192, 0.0), (-unit * 8193, 0.0), (0.0, unit * 1024)):
+            with self.assertRaises(ValueError):
+                encode_expected(*bad)
+
+    def test_the_window_covers_a_ue_anywhere_in_the_service_area(self):
+        # expectedRSTD +- uncertainty must contain the RSTD (geometry plus the RTD at any time in the validity window) of a UE anywhere within the stated radius
+        from bps.assistance import encode_expected, decode_expected, fill_expected_rstd
+        d = AssistanceDocument.from_json(CellCyclicPrefix().doc().to_json())
+        cells = (d.reference, *d.neighbours)
+        llas = [(c.latitude_deg, c.longitude_deg, c.height_m) for c in cells]
+        centre = tuple(float(x) for x in geo.ecef_to_lla(np.mean([geo.lla_to_ecef(*p) for p in llas], axis=0)))
+        radius = 5000.0
+        d.valid_from_gps_ns, d.valid_until_gps_ns = 10**18 - 30 * 10**9, 10**18 + 60 * 10**9
+        d.neighbours[0].rtd = Rtd(1000.0, 5.0, 10**18, 3.0, 0.4)
+        fill_expected_rstd(d, centre, radius)
+        e, u = decode_expected(*encode_expected(d.neighbours[0].expected_rstd_ns, d.neighbours[0].expected_rstd_uncertainty_ns))
+        rng = np.random.default_rng(3)
+        for _ in range(200):
+            ang, r = rng.uniform(0, 2 * math.pi), radius * math.sqrt(rng.uniform())
+            ue = geo.enu_to_lla(centre, (r * math.cos(ang), r * math.sin(ang), 0.0))
+            for t in (d.valid_from_gps_ns, 10**18, d.valid_until_gps_ns):
+                rstd = (np.linalg.norm(geo.lla_to_ecef(*ue) - geo.lla_to_ecef(*llas[1])) - np.linalg.norm(geo.lla_to_ecef(*ue) - geo.lla_to_ecef(*llas[0]))) / 299792458.0 * 1e9 \
+                    + d.neighbours[0].rtd.at(t)
+                self.assertLessEqual(abs(rstd - e), u, (ang, r, t))
+
+    def test_the_default_service_area_is_the_one_bounded_by_the_cells(self):
+        d = CellCyclicPrefix().doc()          # two cells about 11 km apart: radius about 5.5 km, so the window is about 2 x 5.5 km / c wide
+        self.assertAlmostEqual(d.neighbours[0].expected_rstd_uncertainty_ns, 2 * 5560 / 0.299792458 + 3 * math.hypot(5.0, 0.0) + 0.0, delta=0.05 * 2 * 5560 / 0.299792458)
+
+    def test_rtd_info_carries_subframe_offset_when_known(self):
+        from bps.assistance import Rtd, encode_rtd, decode_rtd
+        r = encode_rtd(Rtd(0.0, 5.0, 0, subframe_offset=0))
+        self.assertEqual(r["subframeOffset"], 0)                                      # zero is a value, not an absent field
+        self.assertEqual(decode_rtd(r).subframe_offset, 0)
+        self.assertEqual(list(r)[0], "subframeOffset")
+        self.assertIsNone(decode_rtd(encode_rtd(Rtd(0.0, 5.0, 0))).subframe_offset)
+        with self.assertRaises(ValueError):
+            encode_rtd(Rtd(0.0, 5.0, 0, subframe_offset=10230))
+
+    def test_rtd_reference_std_and_slot_offset(self):
+        import json
+        d = CellCyclicPrefix().doc()
+        d.reference_rtd_std_ns = 20.0
+        d.neighbours[0].slot_number_offset = 0
+        raw = json.loads(d.to_json())
+        self.assertEqual(raw["reference"]["positionCalculationInfoRef"]["rtdReferenceStd"], {"resolution": "ns-5", "quality": 4})
+        self.assertEqual(raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"], 0)
+        back = AssistanceDocument.from_json(d.to_json())
+        self.assertEqual((back.reference_rtd_std_ns, back.neighbours[0].slot_number_offset), (20.0, 0))
+        d.neighbours[0].slot_number_offset = 20
+        with self.assertRaises(ValueError):
+            d.to_json()
+
+    def test_expected_rstd_is_mandatory_on_a_neighbour(self):
+        d = CellCyclicPrefix().doc()
+        d.neighbours[0].expected_rstd_ns = None
+        with self.assertRaises(ValueError):
+            d.to_json()
+
+    def test_co_located_cells_share_a_location(self):
+        import json
+        raw = json.loads(CellCyclicPrefix().doc().to_json())
+        el = raw["neighbours"][0]
+        second = json.loads(json.dumps(el["otdoa-eNB-CellDataList"][0]))
+        second["otdoa-NeighbourCellInfoElement"]["physCellId"] = 9
+        el["otdoa-eNB-CellDataList"].append(second)
+        back = AssistanceDocument.from_json(json.dumps(raw))
+        self.assertEqual([c.phys_cell_id for c in back.neighbours], [2, 9])
+        self.assertEqual((back.neighbours[0].latitude_deg, back.neighbours[0].longitude_deg), (back.neighbours[1].latitude_deg, back.neighbours[1].longitude_deg))
 
     def test_sfn_is_a_10_bit_string_and_range_checked(self):
         import json
         d = CellCyclicPrefix().doc()
         d.reference_sfn = 1023
-        self.assertEqual(json.loads(d.to_json())["reference"]["position_calculation_info"]["systemFrameNumber"], "1111111111")
+        self.assertEqual(json.loads(d.to_json())["reference"]["positionCalculationInfoRef"]["systemFrameNumber"], "1111111111")
         self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference_sfn, 1023)
         d.reference_sfn = 0
         self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference_sfn, 0)    # zero is a value, not an absent field
@@ -141,27 +261,30 @@ class LppeCoding(unittest.TestCase):
 
 
 class CellCyclicPrefix(unittest.TestCase):
-    """The cyclic prefix is a parameter of each cell (TS 37.355 cpLength of OTDOA assistance data, per cell), stated in the document or left to the serving cell's."""
+    """The cyclic prefix is stated per cell (TS 37.355 cpLength): mandatory on the reference cell, on a neighbour only when it is not the reference cell's."""
 
-    def doc(self, ref_cp=None, n_cp=None):
+    def doc(self, ref_cp="extended", n_cp=None):
         prs = Prs(25, 2435, 1)
-        return AssistanceDocument(1, 0, 10**18, Cell(1, 46.0, 6.0, 400.0, prs, cp_length=ref_cp),
-                                  [Cell(2, 46.1, 6.0, 400.0, prs, Rtd(1000.0, 5.0, 10**18), n_cp)])
+        d = AssistanceDocument(1, 0, 10**18, Cell(1, 46.0, 6.0, 400.0, prs, cp_length=ref_cp),
+                               [Cell(2, 46.1, 6.0, 400.0, prs, Rtd(1000.0, 5.0, 10**18), n_cp)])
+        fill_expected_rstd(d)
+        return d
 
     def test_round_trip(self):
         back = AssistanceDocument.from_json(self.doc("extended", "normal").to_json())
         self.assertEqual((back.reference.cp_length, back.neighbours[0].cp_length), ("extended", "normal"))
 
-    def test_absent_stays_absent(self):
-        back = AssistanceDocument.from_json(self.doc().to_json())
-        self.assertIsNone(back.reference.cp_length)
-        self.assertIsNone(back.neighbours[0].cp_length)
-
-    def test_a_document_without_the_field_is_read(self):
+    def test_a_neighbour_with_the_reference_prefix_leaves_it_out(self):
         import json
-        raw = json.loads(self.doc().to_json())
-        del raw["reference"]["cp_length"], raw["neighbours"][0]["cp_length"]
-        self.assertIsNone(AssistanceDocument.from_json(json.dumps(raw)).reference.cp_length)
+        raw = json.loads(self.doc("extended", "extended").to_json())
+        self.assertNotIn("cpLength", raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"])   # NotSameAsRef1: otherwise not present
+        self.assertEqual(AssistanceDocument.from_json(json.dumps(raw)).neighbours[0].cp_length, "extended")      # read as the reference cell's
+        raw = json.loads(self.doc("extended", "normal").to_json())
+        self.assertEqual(raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["cpLength"], "normal")
+
+    def test_the_reference_cell_must_state_it(self):
+        with self.assertRaises(ValueError):
+            self.doc(ref_cp=None).to_json()
 
     def test_another_value_is_refused(self):
         with self.assertRaises(ValueError):
@@ -171,8 +294,8 @@ class CellCyclicPrefix(unittest.TestCase):
         from bps import lab
         net = lab.network({3: "normal"})
         cps = {s.as_cell().phys_cell_id: s.as_cell().cp_length for s in (net.reference, *net.neighbours)}
-        self.assertEqual(cps, {1: None, 2: None, 3: "normal", 4: None})
-        self.assertTrue(all(s.as_cell().cp_length is None for s in (lab.network().reference, *lab.network().neighbours)))
+        self.assertEqual(cps, {1: "extended", 2: None, 3: "normal", 4: None})       # the reference cell always states one, a neighbour only if it differs
+        self.assertEqual(lab.network(reference_cp="normal").reference.cp_length, "normal")
 
     def test_the_command_line_form(self):
         from bps.apps import _cell_cp
@@ -277,7 +400,7 @@ class AssistanceDoc(unittest.TestCase):
         d = self.doc()
         again = AssistanceDocument.from_json(d.to_json())
         for a, b in zip((again.reference, *again.neighbours), (d.reference, *d.neighbours)):
-            self.assertEqual((a.phys_cell_id, a.prs, a.cp_length), (b.phys_cell_id, b.prs, b.cp_length))
+            self.assertEqual((a.phys_cell_id, a.prs, a.cp_length), (b.phys_cell_id, b.prs, b.cp_length or d.reference.cp_length))
             e, n, u = geo.lla_to_enu((b.latitude_deg, b.longitude_deg, b.height_m), (a.latitude_deg, a.longitude_deg, a.height_m))
             self.assertLess(math.hypot(e, n), 1.0 if a is not again.reference else 3.0, a.phys_cell_id)   # TS 23.032 clause 6.1: under 3 m for the point
             self.assertLess(abs(a.height_m - b.height_m), 1.0)

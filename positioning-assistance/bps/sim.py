@@ -13,7 +13,7 @@ import math
 import numpy as np
 
 from . import geo
-from .assistance import AssistanceDocument, Cell, Prs, Rtd
+from .assistance import AssistanceDocument, Cell, Prs, Rtd, fill_expected_rstd
 from .solver import solve_rstd, ue_time_ns
 from .timebase import (C_MPS, SUBFRAME_NS, TS_S, TimeAnchor, gps_ns_to_sib16_r15_fields, next_prs_occasion_start,
                        sib16_r15_time_to_ns)
@@ -50,8 +50,10 @@ def build_document(true_rtd_ns, rtd_error_ns, drift_ns_s, drift_error_ns_s, std_
         rtd = None
         if i > 0:
             rtd = Rtd(true_rtd_ns[i] + rng.normal(0, rtd_error_ns), std_ns, t0_gps_ns, drift_ns_s[i] + rng.normal(0, drift_error_ns_s), drift_error_ns_s)
-        cells.append(Cell(i + 1, lat, lon, h, Prs(25, PRS_INDEX[i], 1), rtd))
-    return AssistanceDocument(1, t0_gps_ns, t0_gps_ns + 3600 * 10**9, cells[0], cells[1:])
+        cells.append(Cell(i + 1, lat, lon, h, Prs(25, PRS_INDEX[i], 1), rtd, "extended" if i == 0 else None))
+    doc = AssistanceDocument(1, t0_gps_ns, t0_gps_ns + 3600 * 10**9, cells[0], cells[1:])
+    fill_expected_rstd(doc)
+    return doc
 
 
 def measure_and_solve(doc_json: str, ue_enu, true_rtd_ns, drift_ns_s, t0_gps_ns, elapsed_s, noise_ns, rng, fix_up=True):

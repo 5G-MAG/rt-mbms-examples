@@ -319,3 +319,15 @@ print_portal_credentials() {
         fi
     fi
 }
+
+# The reference cell's ECGI for the assistance document, as MCC-MNC-CELLIDENTITY: POS_REF_ECGI, or from the eNB configuration (the cell identity is the 20 bit eNB identifier
+# followed by the 8 bit cell_id, TS 36.413 / TS 36.331 CellIdentity), or nothing if POS_REF_ECGI is "none" or the configuration does not have them.
+pos_ref_ecgi() {
+    [[ "$POS_REF_ECGI" == none ]] && return 0
+    [[ -n "$POS_REF_ECGI" ]] && { echo "$POS_REF_ECGI"; return 0; }
+    local conf="$TUTORIAL_DIR/conf/enb_baseline.conf" rr="$TUTORIAL_DIR/conf/rr.conf" mcc mnc enb cell
+    mcc="$(sed -n 's/^mcc *= *//p' "$conf" | head -1 | tr -d ' ;')"; mnc="$(sed -n 's/^mnc *= *//p' "$conf" | head -1 | tr -d ' ;')"
+    enb="$(sed -n 's/^enb_id *= *//p' "$conf" | head -1 | tr -d ' ;')"; cell="$(sed -n 's/^ *cell_id *= *\(0x[0-9a-fA-F]*\|[0-9]*\);.*/\1/p' "$rr" | head -1)"
+    [[ -n "$mcc" && -n "$mnc" && -n "$enb" && -n "$cell" ]] && echo "$mcc-$mnc-$(( enb << 8 | cell ))"
+    return 0
+}

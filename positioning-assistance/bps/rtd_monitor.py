@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Optional
 
 from . import geo
 from .assistance import Rtd
@@ -75,6 +76,11 @@ class RtdMonitor:
         self._min_std_ns = min_std_ns
         self._ts_sigma_ns = timestamp_sigma_ns
         self._epochs: list[Epoch] = []
+
+    @property
+    def reference_std_ns(self) -> Optional[float]:
+        """The standard deviation of one arrival timestamp, i.e. of the reference cell's timing as the monitor takes it (None when the monitor's noise is not known)."""
+        return self._ts_sigma_ns if self._ts_sigma_ns > 0 else None
 
     def add(self, epoch: Epoch) -> None:
         if self._ref not in epoch.arrivals_ns:

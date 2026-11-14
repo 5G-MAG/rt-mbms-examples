@@ -31,7 +31,7 @@ run_bg "assistance publisher" pos-publisher \
     --portal-url "$PORTAL_URL" --portal-user "$PORTAL_USER" --portal-password "$PORTAL_TOKEN" \
     --tmgi-service-id "$POS_TMGI_SERVICE_ID" --tsi "$POS_TSI" --mcast "$POS_MCAST_ADDR" --port "$POS_MCAST_PORT" \
     --c-teid "$POS_C_TEID" --path "$POS_FILE_PATH" --interval "$POS_INTERVAL" --validity "$POS_VALIDITY" \
-    --leap-seconds "$LEAP_SECONDS" $([[ "$POS_SFN_FROM_MODEM" == 1 ]] && echo --sfn-from-modem "http://$RX_ADDR:$MODEM_API_PORT/modem-api/sib_info") $(for c in $POS_CELL_CP; do printf -- '--cell-cp %s ' "$c"; done)
+    --leap-seconds "$LEAP_SECONDS" --cp "$(rig_cp)" $(e="$(pos_ref_ecgi)"; [[ -n "$e" ]] && echo --ref-ecgi "$e") ${POS_SERVICE_RADIUS_M:+--service-radius-m "$POS_SERVICE_RADIUS_M"} $([[ "$POS_SFN_FROM_MODEM" == 1 ]] && echo --sfn-from-modem "http://$RX_ADDR:$MODEM_API_PORT/modem-api/sib_info") $(for c in $POS_CELL_CP; do printf -- '--cell-cp %s ' "$c"; done)
 
 # The publisher prints the session it created and the epoch of its synthetic world; keep both for the UE and for stop.
 for _ in $(seq 1 60); do

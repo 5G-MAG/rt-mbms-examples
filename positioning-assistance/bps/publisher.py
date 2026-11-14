@@ -1,10 +1,10 @@
 """Broadcaster side of option 1: build the assistance document from the network description and the RTD monitor, and push it. [design]"""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Optional
 
-from .assistance import AssistanceDocument, Cell, Prs
+from .assistance import AssistanceDocument, Cell, Prs, fill_expected_rstd
 from .rtd_monitor import InsufficientData, RtdMonitor
 
 
@@ -15,16 +15,20 @@ class CellSite:
     longitude_deg: float
     height_m: float
     prs: Prs
-    cp_length: Optional[str] = None   # "normal" or "extended", carried in the document when set
+    cp_length: Optional[str] = None   # "normal" or "extended": mandatory on the reference cell; on a neighbour only when it is not the reference cell's
+    ecgi: Optional[tuple[str, str, int]] = None   # (mcc, mnc, cell identity), carried as cellGlobalId when set
+    subframe_offset: Optional[int] = None   # whole subframes between SFN=0 of the reference cell and of this cell, when known (0: the frame structures coincide)
 
     def as_cell(self) -> Cell:
-        return Cell(self.phys_cell_id, self.latitude_deg, self.longitude_deg, self.height_m, self.prs, cp_length=self.cp_length)
+        return Cell(self.phys_cell_id, self.latitude_deg, self.longitude_deg, self.height_m, self.prs, cp_length=self.cp_length, ecgi=self.ecgi)
 
 
 @dataclass(frozen=True)
 class Network:
     reference: CellSite
     neighbours: tuple[CellSite, ...]
+    service_centre_lla: Optional[tuple[float, float, float]] = None   # the a-priori UE position behind expectedRSTD; default: the mean of the cell positions
+    service_radius_m: Optional[float] = None   # how far from it a UE may be; default: the largest distance from the centre to a cell
 
     def lla(self) -> dict[int, tuple[float, float, float]]:
         return {c.phys_cell_id: (c.latitude_deg, c.longitude_deg, c.height_m) for c in (self.reference, *self.neighbours)}
@@ -59,13 +63,15 @@ class Publisher:
         neighbours = []
         for site in self._network.neighbours:
             cell = site.as_cell()
-            cell.rtd = rtds[site.phys_cell_id]
+            cell.rtd = replace(rtds[site.phys_cell_id], subframe_offset=site.subframe_offset)
             neighbours.append(cell)
         sfn = None
         valid_at = {c.rtd.valid_at_gps_ns for c in neighbours}
         if self._sfn_at is not None and len(valid_at) == 1:   # one SFN states one instant: only if every RTD holds at the same one
             sfn = self._sfn_at(valid_at.pop())
-        doc = AssistanceDocument(version, now_gps_ns - self._backdate_ns, now_gps_ns + self._validity_ns, self._network.reference.as_cell(), neighbours, sfn)
+        doc = AssistanceDocument(version, now_gps_ns - self._backdate_ns, now_gps_ns + self._validity_ns, self._network.reference.as_cell(), neighbours, sfn,
+                                 self._monitor.reference_std_ns)
+        fill_expected_rstd(doc, self._network.service_centre_lla, self._network.service_radius_m)
         doc.validate()
         return doc
 

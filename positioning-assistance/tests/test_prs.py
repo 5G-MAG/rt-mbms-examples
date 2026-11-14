@@ -445,7 +445,7 @@ class PrsActive(unittest.TestCase):
 
 class AssistanceSchema(unittest.TestCase):
     def doc(self, **prs):
-        ref = Cell(1, 46.0, 6.0, 400.0, Prs(25, 2435, 1, **prs))
+        ref = Cell(1, 46.0, 6.0, 400.0, Prs(25, 2435, 1, **prs), cp_length="extended")
         return AssistanceDocument(1, 0, 10**9, ref, [])
 
     def test_defaults_and_effective_id(self):
@@ -459,11 +459,11 @@ class AssistanceSchema(unittest.TestCase):
         back = AssistanceDocument.from_json(d.to_json())
         self.assertEqual((back.reference.prs.prs_id, back.reference.prs.muting), (300, "0110"))
 
-    def test_an_older_document_without_the_fields_still_loads(self):
+    def test_a_document_without_the_optional_fields_still_loads(self):
         import json
-        raw = json.loads(self.doc().to_json())
-        for k in ("prs_id", "muting"):
-            raw["reference"]["prs"].pop(k)
+        raw = json.loads(self.doc(prs_id=300, muting="0110").to_json())
+        for k in ("prsID-r14", "prs-MutingInfo-r9"):
+            raw["reference"]["referenceCellInfo"]["prsInfo"].pop(k)
         back = AssistanceDocument.from_json(json.dumps(raw))
         self.assertIsNone(back.reference.prs.prs_id)
         self.assertIsNone(back.reference.prs.muting)

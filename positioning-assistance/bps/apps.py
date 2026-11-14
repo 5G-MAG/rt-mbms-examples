@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
 import os
 import posixpath
@@ -30,13 +31,26 @@ def _cell_cp(items) -> dict:
     return out
 
 
+def _ecgi(text):
+    """`--ref-ecgi 901-56-0x19B01` (mcc-mnc-cell identity) as ("901", "56", 0x19B01)."""
+    if not text:
+        return None
+    try:
+        mcc, mnc, ci = text.split("-")
+        return mcc, mnc, int(ci, 0)
+    except ValueError:
+        raise SystemExit(f"--ref-ecgi wants MCC-MNC-CELLIDENTITY, e.g. 901-56-0x19B01, not {text!r}")
+
+
 def _fetch(url: str, timeout: float = 5.0) -> bytes:
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return r.read()
 
 
 def cmd_publish(a) -> None:
-    net = lab.network(_cell_cp(a.cell_cp))
+    net = lab.network(_cell_cp(a.cell_cp), a.cp, _ecgi(a.ref_ecgi))
+    if a.service_radius_m:
+        net = replace(net, service_radius_m=a.service_radius_m)
     world = lab.World(epoch_gps_ns=lab.host_gps_ns(a.leap_seconds))
     monitor = RtdMonitor(geo.enu_to_lla(lab.ORIGIN, lab.MONITOR_ENU), net.lla(), reference_id=1, min_epochs=5,
                          timestamp_sigma_ns=world.noise_ns)
@@ -202,8 +216,11 @@ def main() -> None:
     p.add_argument("--leap-seconds", type=int, default=18)
     p.add_argument("--seconds", type=float, default=0, help="stop after this long (0 = run until killed)")
     p.add_argument("--sfn-from-modem", metavar="URL", help="state the reference cell's SFN at the time the RTDs hold (OMA-LPPe systemFrameNumber), taken from the SFN boundary and time in the modem's sib_info at this URL (lab: same host as the transmitter)")
+    p.add_argument("--cp", choices=("normal", "extended"), default="extended", help="the real cell's cyclic prefix, stated in the document (cpLength of the reference cell is mandatory)")
+    p.add_argument("--ref-ecgi", metavar="MCC-MNC-CELLID", help="the reference cell's global identity (cellGlobalId, optional), e.g. 901-56-0x19B01")
+    p.add_argument("--service-radius-m", type=float, help="how far from the centre of the cells a UE may be (default: the largest distance from the centre to a cell); sets the search window of expectedRSTD")
     p.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended",
-                   help="state this cell's cyclic prefix in the document (TS 37.355 cpLength); cells not named state none, which the UE reads as the serving cell's (repeatable)")
+                   help="state this cell's cyclic prefix in the document (TS 37.355 cpLength); a neighbour that is not named has the reference cell's and states none (repeatable)")
     u = sub.add_parser("ue")
     g = u.add_mutually_exclusive_group(required=True)
     g.add_argument("--doc-file")
