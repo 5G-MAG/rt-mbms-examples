@@ -358,6 +358,18 @@ class LppeCoding(unittest.TestCase):
         d.version = 1478698084
         self.assertEqual(_sent_version(d.to_json().encode()), 1478698084)
 
+    def test_the_file_store_replaces_the_file_whole(self):
+        import os, tempfile
+        from bps.apps import _file_store
+        with tempfile.TemporaryDirectory() as d:
+            store = _file_store(os.path.join(d, "www", "positioning"), "http://127.0.0.1:3005/positioning/assistance.json")
+            store(b"one")
+            store(b"two")
+            self.assertEqual(open(os.path.join(d, "www", "positioning", "assistance.json"), "rb").read(), b"two")
+            self.assertEqual(os.listdir(os.path.join(d, "www", "positioning")), ["assistance.json"])    # no temporary file left
+        with self.assertRaises(SystemExit):
+            _file_store("", "http://x/a.json")
+
     def test_the_old_schema_is_refused(self):
         import json
         env, raw = load(CellCyclicPrefix().doc().to_json())

@@ -43,6 +43,21 @@ def _ecgi(text):
         raise SystemExit(f"--ref-ecgi wants MCC-MNC-CELLIDENTITY, e.g. 901-56-0x19B01, not {text!r}")
 
 
+def _file_store(serve_dir: str, serve_url: str):
+    """Stores the assistance file where `serve_url` points (a file of `serve_dir`, which a web server serves), replacing it atomically."""
+    if not serve_dir or not serve_url:
+        raise SystemExit("--deliver url needs --serve-dir and --serve-url")
+    name = serve_url.rsplit("/", 1)[-1]
+    os.makedirs(serve_dir, exist_ok=True)
+
+    def store(body: bytes) -> None:
+        tmp = os.path.join(serve_dir, f".{name}.tmp")
+        with open(tmp, "wb") as f:
+            f.write(body)
+        os.replace(tmp, os.path.join(serve_dir, name))
+    return store
+
+
 def _sent_version(sent: bytes) -> int:
     """The version of a document the publisher has just sent, for its log line."""
     return AssistanceDocument.from_json(sent.decode()).version
@@ -72,7 +87,8 @@ def cmd_publish(a) -> None:
         print(f"session {session} on service {svc} active", flush=True)
     sfn_at = ModemSfn(a.sfn_from_modem) if a.sfn_from_modem else None
     pub = Publisher(net, monitor, lambda body: xmbu.push(session, a.path, body), validity_s=a.validity, sfn_at=sfn_at,
-                    repeat_interval_s=a.interval, broadcast_area=a.broadcast_area, leap_seconds=a.leap_seconds)
+                    repeat_interval_s=a.interval, broadcast_area=a.broadcast_area, leap_seconds=a.leap_seconds,
+                    file_url=a.serve_url if a.deliver == "url" else None, store_file=_file_store(a.serve_dir, a.serve_url) if a.deliver == "url" else None)
     end = time.time() + a.seconds if a.seconds else None
     while end is None or time.time() < end:
         now = lab.host_gps_ns(a.leap_seconds)
@@ -223,6 +239,9 @@ def main() -> None:
     p.add_argument("--leap-seconds", type=int, default=18)
     p.add_argument("--seconds", type=float, default=0, help="stop after this long (0 = run until killed)")
     p.add_argument("--sfn-from-modem", metavar="URL", help="state the reference cell's SFN at the time the RTDs hold (OMA-LPPe systemFrameNumber), taken from the SFN boundary and time in the modem's sib_info at this URL (lab: same host as the transmitter)")
+    p.add_argument("--deliver", choices=("file", "url"), default="file", help="send the assistance file itself over the air, or the URL where it is (the deck, slide 18, \"to alleviate NW load\"; the UE then fetches it)")
+    p.add_argument("--serve-dir", help="--deliver url: the directory a web server serves, where the file is stored")
+    p.add_argument("--serve-url", help="--deliver url: the URL of the file in that directory, which is what is sent")
     p.add_argument("--broadcast-area", help="the broadcastArea of the file's envelope (the deck's slide 14), when the broadcaster names one")
     p.add_argument("--cp", choices=("normal", "extended"), default="extended", help="the real cell's cyclic prefix, stated in the document (cpLength of the reference cell is mandatory)")
     p.add_argument("--ref-ecgi", metavar="MCC-MNC-CELLID", help="the reference cell's global identity (cellGlobalId, optional), e.g. 901-56-0x19B01")

@@ -24,6 +24,7 @@ from . import geo
 from .timebase import TS_S, prs_period_offset
 
 SCHEMA = "bps-assistance/3-draft"  # [design] draft, versioned so a UE can refuse what it does not know (0: own RTD and position blocks; 1: LPPe values in a flat layout; 2: the IEs nested; 3: in the envelope of the deck)
+POINTER_SCHEMA = "bps-assistance-pointer/1-draft"  # [design] the file that carries the URL of the assistance file instead of the file (the deck, slide 18)
 _GPS_EPOCH = datetime.datetime(1980, 1, 6, tzinfo=datetime.timezone.utc)
 _AUTHOR = "5G-MAG"
 
@@ -429,6 +430,38 @@ class AssistanceDocument:
 
         return {"schema": SCHEMA, "version": self.version, "valid_from_gps_ns": self.valid_from_gps_ns, "valid_until_gps_ns": self.valid_until_gps_ns,
                 "reference": {"referenceCellInfo": ref_info, "positionCalculationInfoRef": calc}, "neighbours": [neighbour(c) for c in self.neighbours]}
+
+    def pointer_json(self, url: str) -> str:
+        """The file that is sent in place of the document when the document is fetched from `url` (the deck, slide 18: "FLUTE can be used to deliver the JSON file, or to
+        deliver the URL in which the JSON file is located, to alleviate NW load"). The same envelope, with one entry holding the URL, and the version so that a UE need not
+        fetch a document it already has."""
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("the URL of the assistance file must be http or https")
+        delivery = {"serviceId": self.service_id, "serviceName": self.service_name}
+        if self.broadcast_area is not None:
+            delivery["broadcastArea"] = self.broadcast_area
+        schedule = {"startTime": self._iso(self.valid_from_gps_ns), "endTime": self._iso(self.valid_until_gps_ns)}
+        if self.repeat_interval_s is not None:
+            schedule["repeatInterval"] = f"PT{self.repeat_interval_s:g}S"
+        meta = {"description": "Location of the positioning assistance data file", "version": str(self.version), "createdBy": _AUTHOR}
+        if self.created_gps_ns is not None:
+            meta["createdDate"] = self._iso(self.created_gps_ns)
+        delivery.update({"deliveryMethod": "broadcast", "fileSchedule": schedule,
+                         "textData": [{"textId": "assistanceFile", "title": "Location of the assistance data file",
+                                       "contents": [{"contentId": "Assistance data file URL", "content": url, "author": _AUTHOR}]}], "metadata": meta})
+        return json.dumps({"schema": POINTER_SCHEMA, "MBMSDelivery": delivery}, indent=1)
+
+    @staticmethod
+    def parse_pointer(text: str) -> tuple[str, int]:
+        """(URL, version) of a pointer file; ValueError if it is not one or the URL is not http or https."""
+        raw = json.loads(text)
+        if raw.get("schema") != POINTER_SCHEMA:
+            raise ValueError(f"not a pointer file: schema {raw.get('schema')!r}")
+        delivery = raw["MBMSDelivery"]
+        urls = [c["content"] for t in delivery["textData"] if t["textId"] == "assistanceFile" for c in t["contents"] if c["contentId"] == "Assistance data file URL"]
+        if len(urls) != 1 or not isinstance(urls[0], str) or not urls[0].startswith(("http://", "https://")):
+            raise ValueError("a pointer file holds exactly one http or https URL")
+        return urls[0], int(delivery["metadata"]["version"])
 
     @staticmethod
     def unwrap(raw: dict) -> dict:

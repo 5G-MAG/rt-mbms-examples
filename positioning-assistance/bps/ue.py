@@ -10,19 +10,31 @@ to the reference cell is added back to get the UE's own time.
 from __future__ import annotations
 
 import json
+import urllib.request
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
 from . import geo
-from .assistance import AssistanceDocument
+from .assistance import POINTER_SCHEMA, AssistanceDocument
 from .solver import Solution, solve_rstd
 from .timebase import C_MPS, SUBFRAME_NS, TS_S
 
 
 class StaleDocument(RuntimeError):
     pass
+
+
+def _http_fetch(url: str, max_bytes: int, timeout_s: float = 5.0) -> bytes:
+    """GET `url` (http or https only); more than `max_bytes` is refused, not truncated."""
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("only http and https URLs are fetched")
+    with urllib.request.urlopen(url, timeout=timeout_s) as r:
+        data = r.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"the file is larger than {max_bytes} bytes")
+    return data
 
 
 class NetworkClock:
@@ -58,10 +70,34 @@ class NetworkClock:
 class AssistanceStore:
     """Holds the newest valid assistance document the UE has received."""
 
-    def __init__(self) -> None:
+    def __init__(self, fetch: Optional[Callable[[str, int], bytes]] = None, max_bytes: int = 1 << 20) -> None:
+        """`fetch(url, max_bytes)` gets the assistance file when what arrives over the air is a pointer to it (the deck, slide 18); the default is an HTTP GET.
+        `max_bytes` bounds what is accepted from the URL: there is no clause for it, so it is a parameter (default 1 MiB, about 200 times the file the lab sends)."""
         self._doc: Optional[AssistanceDocument] = None
+        self._fetch = fetch or _http_fetch
+        self._max_bytes = max_bytes
 
     def ingest(self, raw: bytes) -> str:
+        """The file that came over the air: the document, or a pointer to it. A pointer to a document no newer than the current one is not fetched."""
+        try:
+            is_pointer = json.loads(raw.decode()).get("schema") == POINTER_SCHEMA
+        except (ValueError, AttributeError, UnicodeDecodeError):
+            is_pointer = False
+        if not is_pointer:
+            return self._ingest_document(raw)
+        try:
+            url, version = AssistanceDocument.parse_pointer(raw.decode())
+        except (ValueError, KeyError, TypeError) as e:
+            return f"rejected: {e}"
+        if self._doc is not None and version <= self._doc.version:
+            return "ignored: not newer than the current document"
+        try:
+            body = self._fetch(url, self._max_bytes)
+        except (OSError, ValueError) as e:
+            return f"rejected: the assistance file at {url} could not be fetched: {e}"
+        return self._ingest_document(body)
+
+    def _ingest_document(self, raw: bytes) -> str:
         """Returns a short verdict: accepted, ignored (not newer) or rejected (with the reason). A document that does not validate
         never replaces a good one."""
         try:

@@ -47,12 +47,16 @@ class Publisher:
 
     def __init__(self, network: Network, monitor: RtdMonitor, push: Callable[[bytes], None], validity_s: int = 90,
                  backdate_s: int = 30, sfn_at: Optional[Callable[[int], Optional[int]]] = None,
-                 repeat_interval_s: Optional[float] = None, broadcast_area: Optional[str] = None, leap_seconds: int = 18):
+                 repeat_interval_s: Optional[float] = None, broadcast_area: Optional[str] = None, leap_seconds: int = 18,
+                 file_url: Optional[str] = None, store_file: Optional[Callable[[bytes], None]] = None):
         if validity_s <= 0:
             raise ValueError("validity_s must be positive")
         self._network, self._monitor, self._push, self._validity_ns = network, monitor, push, int(validity_s * 1e9)
         self._backdate_ns = int(backdate_s * 1e9)
         self._envelope = {"repeat_interval_s": repeat_interval_s, "broadcast_area": broadcast_area, "leap_seconds": leap_seconds}   # how the file's envelope (the deck's slide 14) is filled
+        if (file_url is None) != (store_file is None):
+            raise ValueError("file_url and store_file go together: the file is stored where the URL points, and the URL is sent")
+        self._file_url, self._store_file = file_url, store_file   # the deck, slide 18: send the URL of the file instead of the file
         self._sfn_at = sfn_at   # the reference cell's SFN at a network time, if the broadcaster can say; the document then carries it with the RTDs
         self._last_version = 0
 
@@ -81,13 +85,18 @@ class Publisher:
         return doc
 
     def publish_once(self, now_gps_ns: int) -> Optional[bytes]:
-        """Build and push one document. Returns the bytes sent, or None when there is not enough monitoring data yet (nothing is
+        """Build and push one document. Returns the document made (what is on the air is that, or with a file URL its pointer), or None when there is not enough monitoring data yet (nothing is
         sent: an absent document is better than one made of guesses)."""
         try:
             doc = self.build(now_gps_ns)
         except InsufficientData:
             return None
         body = doc.to_json().encode()
-        self._push(body)
+        if self._file_url is not None:
+            self._store_file(body)       # a pointer to a file that is not there is worse than nothing: if this fails nothing is sent
+            sent = doc.pointer_json(self._file_url).encode()
+        else:
+            sent = body
+        self._push(sent)
         self._last_version = doc.version
         return body

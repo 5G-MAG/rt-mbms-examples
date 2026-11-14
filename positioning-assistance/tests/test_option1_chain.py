@@ -193,6 +193,105 @@ class Chain(unittest.TestCase):
         self.assertEqual((back.created_gps_ns, back.repeat_interval_s, back.leap_seconds), (self.t_last, 5.0, 18))
         self.assertNotIn("broadcastArea", load(self.pub.publish_once(self.t_last))[0]["MBMSDelivery"])      # not named: left out
 
+    # -- the URL of the file instead of the file (the deck, slide 18)
+    def test_the_publisher_can_send_the_url_of_the_file_instead_of_the_file(self):
+        stored, sent = [], []
+        pub = Publisher(self.net, self.mon, sent.append, file_url="http://127.0.0.1:3005/positioning/assistance.json", store_file=stored.append)
+        made = pub.publish_once(self.t_last)
+        self.assertEqual(stored, [made])                                    # the file is stored where the URL points
+        url, version = AssistanceDocument.parse_pointer(sent[0].decode())
+        self.assertEqual(url, "http://127.0.0.1:3005/positioning/assistance.json")
+        self.assertEqual(version, AssistanceDocument.from_json(made.decode()).version)
+        self.assertLess(len(sent[0]), len(made) // 2)                       # that is the point: much less over the air
+        env = json.loads(sent[0])
+        self.assertEqual(env["schema"], "bps-assistance-pointer/1-draft")
+        self.assertEqual(env["MBMSDelivery"]["deliveryMethod"], "broadcast")
+
+    def test_nothing_is_sent_when_the_file_cannot_be_stored(self):
+        sent = []
+
+        def fail(body):
+            raise OSError("disk full")
+        pub = Publisher(self.net, self.mon, sent.append, file_url="http://127.0.0.1:3005/a.json", store_file=fail)
+        with self.assertRaises(OSError):
+            pub.publish_once(self.t_last)
+        self.assertEqual(sent, [])
+
+    def test_the_url_and_the_store_go_together(self):
+        with self.assertRaises(ValueError):
+            Publisher(self.net, self.mon, lambda b: None, file_url="http://x/a.json")
+        with self.assertRaises(ValueError):
+            Publisher(self.net, self.mon, lambda b: None, store_file=lambda b: None)
+
+    def test_the_ue_fetches_the_file_a_pointer_names(self):
+        sent, stored = [], []
+        pub = Publisher(self.net, self.mon, sent.append, file_url="http://origin/a.json", store_file=stored.append)
+        pub.publish_once(self.t_last)
+        calls = []
+
+        def fetch(url, max_bytes):
+            calls.append((url, max_bytes))
+            return stored[-1]
+        store = AssistanceStore(fetch=fetch)
+        self.assertEqual(store.ingest(sent[-1]), "accepted")
+        self.assertEqual(calls, [("http://origin/a.json", 1 << 20)])
+        self.assertEqual(store.current(self.t_last).version, AssistanceDocument.from_json(stored[-1].decode()).version)
+        self.assertTrue(store.ingest(sent[-1]).startswith("ignored"))        # the same version again: not fetched a second time
+        self.assertEqual(len(calls), 1)
+
+    def test_a_pointer_that_cannot_be_followed_is_rejected_and_keeps_the_current_document(self):
+        sent, stored = [], []
+        pub = Publisher(self.net, self.mon, sent.append, file_url="http://origin/a.json", store_file=stored.append)
+        pub.publish_once(self.t_last)
+        first_pointer, first_doc = sent[-1], stored[-1]
+        pub.publish_once(self.t_last + 10**9)
+        second_pointer = sent[-1]
+        store = AssistanceStore(fetch=lambda url, n: first_doc)
+        self.assertEqual(store.ingest(first_pointer), "accepted")
+
+        def down(url, n):
+            raise OSError("connection refused")
+        store._fetch = down
+        self.assertIn("could not be fetched", store.ingest(second_pointer))
+        self.assertEqual(store.current(self.t_last).version, AssistanceDocument.from_json(first_doc.decode()).version)
+        store._fetch = lambda url, n: b"{not json"
+        self.assertTrue(store.ingest(second_pointer).startswith("rejected"))
+        store._fetch = lambda url, n: second_pointer                         # a pointer to a pointer is not followed
+        self.assertTrue(store.ingest(second_pointer).startswith("rejected"))
+
+    def test_the_pointer_must_hold_one_http_url(self):
+        d = AssistanceDocument.from_json(self.pub.publish_once(self.t_last).decode())
+        for bad in ("file:///etc/passwd", "ftp://x/a.json", "", "/local/path"):
+            with self.assertRaises(ValueError):
+                d.pointer_json(bad)
+        env = json.loads(d.pointer_json("http://origin/a.json"))
+        env["MBMSDelivery"]["textData"][0]["contents"][0]["content"] = "file:///etc/passwd"
+        self.assertTrue(AssistanceStore().ingest(json.dumps(env).encode()).startswith("rejected"))
+        env["MBMSDelivery"]["textData"][0]["contents"].append(env["MBMSDelivery"]["textData"][0]["contents"][0])
+        self.assertTrue(AssistanceStore().ingest(json.dumps(env).encode()).startswith("rejected"))
+
+    def test_the_default_fetcher_refuses_other_schemes_and_large_files(self):
+        import http.server, threading
+        from bps.ue import _http_fetch
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200); self.end_headers(); self.wfile.write(b"x" * 5000)
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{srv.server_address[1]}/a.json"
+            self.assertEqual(len(_http_fetch(url, 5000)), 5000)
+            with self.assertRaises(ValueError):
+                _http_fetch(url, 4999)                                       # refused, not truncated
+            with self.assertRaises(ValueError):
+                _http_fetch("file:///etc/hostname", 100)
+        finally:
+            srv.shutdown(); srv.server_close()
+
     def test_no_sfn_when_it_cannot_be_said(self):
         for fn in (None, lambda t: None):
             self.pub._sfn_at = fn
