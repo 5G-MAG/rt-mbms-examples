@@ -148,10 +148,6 @@ def cmd_ue(a) -> None:
                     m = modem_prs.next(doc)
                     if m is None:
                         raise ValueError("waiting for a PRS measurement" + (f" ({modem_prs.last_reject})" if modem_prs.last_reject else ""))
-                    if a.print_rstd_error:
-                        # lab only: the error of each time difference against what the synthetic world makes of it at the instant the modem measured
-                        truth = world.measurement(clock.network_time_ns(m.sample_clock_ns), m.sample_clock_ns, noise_ns=0.0)
-                        print(f"{time.strftime('%H:%M:%S')} rstd error (ns): " + " ".join(f"{c}:{(m.rstd_s[c] - truth.rstd_s[c]) * 1e9:+.1f}" for c in sorted(m.rstd_s)), flush=True)
                 else:
                     m = world.measurement(t_net, sample_clock)
                 fix = positioner.solve(m)
@@ -281,7 +277,6 @@ def main() -> None:
     u.add_argument("--toa-signal", choices=("prs", "pss_sss"), default="prs",
                    help="with --measure modem: what the modem takes the time of arrival from, the PRS of the assistance data (default) or the PSS and SSS of each cell's "
                         "cell acquisition subframe (the proposal's alternative where those subframes are not SFN'ed, slide 13 Note 1)")
-    u.add_argument("--print-rstd-error", action="store_true", help="with --measure modem, lab only: print the error of each time difference against the synthetic world's true value")
     u.add_argument("--toa-sigma-ns", type=float, default=15.0,
                    help="with --measure modem: the error given to each time difference. The default is what was measured live for PRS (25 PRB, one path); the PSS and SSS "
                         "have 62 subcarriers instead of 300 and one live run gave position errors about 1.3 times those claimed with it (rms 33 m against 26 m, 43 fixes), so a "
