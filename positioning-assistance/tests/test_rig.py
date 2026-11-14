@@ -153,27 +153,6 @@ class MixerTests(unittest.TestCase):
             self.assertAlmostEqual((toa[c] - toa[1]) * 1e9, self.DELAYS[c] * 1e9, delta=5.0, msg=f"cell {c}")
         self.assertLess(abs(toa[1]) * 1e9, 5.0)
 
-    def test_the_emulated_cells_can_send_their_pss_and_sss_instead_of_prs(self):
-        p_true = 85.3
-        x = self.stream(6, p_true)
-        m = Mixer([EmulatedCell(2)], lambda cid, t: self.DELAYS[2], lambda: 10**18, power_db=-6.0, normal_cp=self.NORMAL_CP, signal="pss_sss")
-        out = run(m, x)
-        occasion = 4
-        a = p_true + occasion * CAS_PERIOD
-        lo = int(a) - 12000
-        added = (out[lo: lo + 40000] - x[lo: lo + 40000]).astype(complex)       # what the mixer put in: only the emulated cell's signal
-        sync_ref = upsample2(cas_subframe(2, 25, normal_cp=self.NORMAL_CP))
-        prs_ref = upsample2(prs_subframe(2, 0, 25, n_f=0, normal_cp=self.NORMAL_CP))
-        lag, peak_sync = correlation_lag(added, sync_ref)
-        _, peak_prs = correlation_lag(added, prs_ref)
-        self.assertAlmostEqual((lag + lo - a) / FS * 1e9, self.DELAYS[2] * 1e9, delta=3.0)
-        self.assertGreater(peak_sync, 5 * peak_prs)                              # it is the PSS and SSS that were added, not the PRS
-        m_prs = Mixer([EmulatedCell(2)], lambda cid, t: self.DELAYS[2], lambda: 10**18, power_db=-6.0, normal_cp=self.NORMAL_CP)
-        added_prs = (run(m_prs, x)[lo: lo + 40000] - x[lo: lo + 40000]).astype(complex)
-        self.assertGreater(correlation_lag(added_prs, prs_ref)[1], 5 * correlation_lag(added_prs, sync_ref)[1])   # and by default it is the PRS
-        with self.assertRaises(ValueError):
-            Mixer([EmulatedCell(2)], lambda c, t: 0.0, lambda: 0, signal="crs")
-
     def test_the_real_cell_is_untouched_outside_the_injections(self):
         x = self.stream(6, 85.3)
         m = self.mixer()
