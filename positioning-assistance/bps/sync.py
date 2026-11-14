@@ -5,6 +5,10 @@ instead of from PRS. The sequences and their mapping follow TS 36.211 V19.3.0 cl
 the frames with n_f mod 4 = 0). What is not here: nothing generates or measures these signals in rt-mbms-tx or rt-mbms-modem for the purpose; this module is the
 signal processing a UE would do, run on a simulated channel, feeding the same positioning chain as bps.prs.
 
+Standing: this is the proposal's alternative, not the measurement the specification sets requirements for. TS 36.133 V19.6.0 clause 8.1.2.5 writes the RSTD
+requirements for PRS and allows the CRS in addition ("it is up to UE implementation whether to use or not the CRS for RSTD measurements"); PSS and SSS are not
+named (SPEC-CLAIMS.md C38). The accuracy requirement (clause 9.1.10.1) is stated at a PRS Es/Iot, so it does not transfer to this signal.
+
 Bandwidth: 62 subcarriers at 15 kHz, 0.93 MHz, against 4.5 MHz of a 25 PRB PRS, so the same noise gives a coarser time of arrival.
 """
 from __future__ import annotations

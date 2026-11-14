@@ -9,8 +9,9 @@ Nothing pins a version for this prototype yet; Release 19 was chosen by the owne
 | TS 36.331 | V19.4.0 (2026-09) | SIB16 time, TimeReferenceInfo |
 | TS 36.211 | V19.3.0 (2026-03) | PRS occasions, sequence and mapping; PSS and SSS |
 | TS 36.214 | V19.0.0 (2025-09) | RSTD definition |
-| TS 36.133 | V19.6.0 (2026-09) | RSTD reporting resolution |
+| TS 36.133 | V19.6.0 (2026-09) | RSTD reporting resolution; which signals RSTD requirements are written for; accuracy conditions |
 | TS 37.355 | V19.3.0 (2026-06) | LTE OTDOA assistance data and capability (TS 36.355 V19.0.0 is the stub that points here) |
+| TS 36.305 | V19.0.0 | read for MBMS-dedicated cells and OTDOA (no sentence found) |
 | TS 26.346 | V19.3.0 | announcement of a generic application service (delivery stage, not used by the code yet) |
 | TS 26.348 | V19.0.0 | xMB Files session properties (delivery stage, not used by the code yet) |
 
@@ -84,9 +85,22 @@ rendered pages 185 to 188 of TS 36.211 V19.3.0 and checked against srsRAN (all 5
 - TS 36.211 V19.3.0 clause 6.11.1.1: "used for the primary synchronization signal is generated from a frequency-domain Zadoff-Chu sequence" with the root indices of Table 6.11.1.1-1 (25, 29, 34 for N_ID^(2) = 0, 1, 2) and the two expressions of d(n) read from the rendered page. [C34] Code: `pss_sequence`.
 - TS 36.211 V19.3.0 clause 6.11.2.1: "is an interleaved concatenation of two length-31 binary sequences" and "The concatenated sequence is scrambled with a scrambling sequence given by the primary synchronization signal." The m-sequences, the shifts and the two subframe variants are read from the rendered page. [C35] Code: `sss_sequence`, `sss_indices`.
 - TS 36.211 V19.3.0 clauses 6.11.1.2 and 6.11.2.2, MBMS-dedicated cell: the PSS in the last OFDM symbol and the SSS in the one before it, in slot 0 of the frames with n_f mod 4 = 0, on k = n - 31 + N_RB^DL N_sc^RB / 2, n = 0..61 (C24, C25). [C36] Code: `sync_slot_grid`; its resource elements are the ones `bps.prs.sync_pbch_core_mask` keeps PRS clear of (tested).
-- TS 36.214 V19.0.0 clause 5.1.12 defines the RSTD through "the time when the UE receives the start of one subframe", without naming the signal it is taken from. The time difference of subframe starts derived from the PSS and SSS is the same quantity. TS 36.133 was **not read** for which signals a UE must or may use. [C37]
+- TS 36.214 V19.0.0 clause 5.1.12 defines the RSTD through "the time when the UE receives the start of one subframe", without naming the signal it is taken from. The time difference of subframe starts derived from the PSS and SSS is the same quantity. TS 36.133 clause 8.1.2.5 was read afterwards: C38. [C37]
 
 What is this project's own design: the waveform (slot 0 only, no PBCH, no cell-specific reference signals), the channel (one path per cell, white noise, no frequency offset), the correlation estimator with interference cancellation (strongest cell first, subtract, repeat, two refinement passes), and the weights (`SYNC_TOA_SIGMA_NS`, from `python3 -m bps.compare sigma`). Not modelled: the cell-specific reference signals of the cell acquisition subframe, which would add bandwidth; a UE that uses them would do better.
+
+## Which signals a UE measures RSTD on, and the cyclic prefix per cell (read 2026-11-14)
+
+Read for the alternative of slide 13, note 1 (PSS/SSS), and for the per-cell cyclic prefix of the assistance document: TS 36.133 V19.6.0, TS 37.355 V19.3.0, TS 36.331 V19.4.0, TS 36.305 V19.0.0, and TS 36.355 V19.0.0 (a stub that points to TS 37.355, so searched but not informative) of `Downloads/3GPP-specs-pnt-rel19/specs`).
+
+- TS 36.133 V19.6.0 clause 8.1.2.5: "When using CRS, in addition to PRS, is enabled in the OTDOA assistance data, it is up to UE implementation whether to use or not the CRS for RSTD measurements, but in either case the RSTD measurements reported by the UE shall meet the requirements specified in this section." [C38] So the RSTD requirements are written for PRS, with the CRS as an option. The PSS and SSS are not named for RSTD there. **Consequence:** the PSS/SSS alternative (`bps/sync.py`) is this proposal's own, outside the measurement the specification defines requirements for.
+- TS 36.133 V19.6.0 clause 9.1.10.1, Table 9.1.10.1-1, row for 25 RB: "6 | (PRS Ês/Iot)ref ≥-6dB / and / (PRS Ês/Iot)i ≥-13dB |  25 | ≥ 2" (accuracy 6 Ts, at least 2 measurement subframes). [C39] With Ts = 1/30.72 microsecond that is 195 ns at 25 PRB. The lab figures (about 10 ns per RSTD, one path, no fading) are not requirement values and must not be read as such.
+- TS 36.133 V19.6.0 clause 9.1.10.1: "The parameter expectedRSTDUncertainty signalled over LPP by E-SMLC as defined in TS 36.355 [24] is less than 5 µs." [C40] A condition of the accuracy requirement; the document of this prototype carries no such parameter.
+- TS 37.355 V19.3.0 clause 6.5.1.2, field description of the reference cell: "cpLength / This field specifies the cyclic prefix length of the assistance data reference cell PRS if the prsInfo field is present, otherwise this field specifies the cyclic prefix length of the assistance data reference cell CRS." [C41] The neighbour cell has the same field: "cpLength / This field specifies the cyclic prefix length of the neigbour cell PRS if PRS are present in this neighbour cell, otherwise this field specifies the cyclic prefix length of CRS in this neighbour cell." (sic, "neigbour"). **So the cyclic prefix is stated per cell**, which is what `Cell.cp_length` carries (absent: the serving cell's, the prototype's reading). Code: `bps/assistance.py` `Cell.cp_length`, rt-mbms-modem `PrsToa::CellInfo::cp`.
+- TS 37.355 V19.3.0 clause 6.5.1.2: "sameMBSFNconfigRef / This field indicates whether the MBSFN subframe configuration of the assistance data reference cell is the same as the current primary cell of the target device." [C42] Not carried by the prototype.
+- **Absence claims** (searched by me, whole documents, case-insensitive): "MBMS-dedicated", "MBMS dedicated" and "FeMBMS" have no hit in TS 36.305 V19.0.0 or TS 37.355 V19.3.0 (0 hits each); "MBMS-dedicated" and "FeMBMS" have no hit in clauses 8.1.2.5 and 9.1.10 of TS 36.133 V19.6.0 (it has "FeMBMS" elsewhere, in the RRM requirements); in TS 36.331 V19.4.0 none of the 11 lines with "OTDOA" mentions MBMS. So no sentence read allows or forbids PRS, or sets RSTD requirements, for an MBMS-dedicated cell. This is a negative result of a keyword search, not a reading of every clause.
+
+What is this project's own design: using PSS and SSS as the time-of-arrival signal (it is not what the RSTD requirements cover), and reading an absent `cp_length` as the serving cell's.
 
 ## Not verified, and why
 
@@ -94,4 +108,4 @@ What is this project's own design: the waveform (slot 0 only, no PBCH, no cell-s
 - **Sample-clock anchor:** the SI-window arithmetic (clause 5.2.3b) is implemented in rt-mbms-tx and rt-mbms-modem, and `bps/live.py` consumes it, but the modem does not yet tie the boundary frame to its sample count (SdrReader ignores the receive timestamp), so the UE-side anchor is the host clock at decode time, lab grade.
 - **PRS on an MBMS-dedicated (FeMBMS) carrier:** not established; what the text does say is in C28 to C32.
 - **PRS generation and ToA estimation in the stack:** rt-mbms-tx `feature/prs-transmit` generates PRS and rt-mbms-modem `feature/prs-toa` measures it (both local, unpushed, and checked against the golden vectors of `tools/gen_prs_golden.py`); `bps/prs.py` is the Python reference and the software model of the UE processing. Neighbouring cells are emulated by `bps/rig.py`.
-- **UE accuracy requirements** (TS 36.133 clause 9.1.10.1 and .2) were not read; the simulator's noise levels are free parameters, not requirement values.
+- **UE accuracy requirements:** clause 9.1.10.1 was read (C39, C40); the simulator's noise levels are free parameters, not requirement values. Clause 9.1.10.2 (inter-frequency) was not read.
