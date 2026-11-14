@@ -95,6 +95,27 @@ _FINE_RTD_STEP_NS = 10.0      # fineRTD is in units of 10 ns
 _MAX_NORTH_M, _MAX_EAST_M = 20_000.0, 10_000.0   # beyond these OMA-LPPe-RelativeLocation no longer allows the straight-line approximation used here
 
 
+def _int(d: dict, key: str, lo: int, hi: int) -> int:
+    """A field of the document that the ASN.1 types as INTEGER (lo..hi): refused when it is anything else or outside."""
+    v = d[key]
+    if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+        raise ValueError(f"{key} must be an integer in {lo}..{hi}, not {v!r}")
+    return v
+
+
+def _choice(d: dict, key: str, allowed) -> str:
+    v = d[key]
+    if v not in allowed:
+        raise ValueError(f"{key} must be one of {sorted(allowed, key=str)}, not {v!r}")
+    return v
+
+
+def _bits(v, n: int, what: str) -> str:
+    if not isinstance(v, str) or len(v) != n or set(v) - {"0", "1"}:
+        raise ValueError(f"{what} must be a bit string of {n} bits, not {v!r}")
+    return v
+
+
 def encode_point(lat_deg: float, lon_deg: float, height_m: float) -> dict:
     """EllipsoidPointWithAltitude (TS 37.355 ASN.1) from a WGS 84 position, by the equations of TS 23.032 clause 6.1 and 6.3 (floor, so the point lies within
     the coded range)."""
@@ -109,9 +130,10 @@ def encode_point(lat_deg: float, lon_deg: float, height_m: float) -> dict:
 
 def decode_point(p: dict) -> tuple[float, float, float]:
     """The middle of the range each coded number stands for (the clause defines ranges, not points)."""
-    lat = (p["degreesLatitude"] + 0.5) / _LAT_STEPS * (-1 if p["latitudeSign"] == "south" else 1)
-    lon = (p["degreesLongitude"] + 0.5) / _LON_STEPS
-    alt = (p["altitude"] + 0.5) * (-1 if p["altitudeDirection"] == "depth" else 1)
+    lat_n, lon_n, alt_n = _int(p, "degreesLatitude", 0, 2**23 - 1), _int(p, "degreesLongitude", -2**23, 2**23 - 1), _int(p, "altitude", 0, 2**15 - 1)
+    lat = (lat_n + 0.5) / _LAT_STEPS * (-1 if _choice(p, "latitudeSign", ("north", "south")) == "south" else 1)
+    lon = (lon_n + 0.5) / _LON_STEPS
+    alt = (alt_n + 0.5) * (-1 if _choice(p, "altitudeDirection", ("height", "depth")) == "depth" else 1)
     return lat, lon, alt
 
 
@@ -133,9 +155,12 @@ def encode_relative(ref_lla: tuple[float, float, float], lla: tuple[float, float
 
 
 def decode_relative(ref_lla: tuple[float, float, float], rel: dict) -> tuple[float, float, float]:
+    if rel.get("units") not in _UNIT_M:
+        raise ValueError(f"units must be one of cm, dm, m10 or absent, not {rel.get('units')!r}")
     u = _UNIT_M[rel.get("units")]
-    lat, lon, _ = geo.enu_to_lla(ref_lla, (rel["relativeEast"] * u, rel["relativeNorth"] * u, 0.0))
-    alt = rel["relativeAltitude"]["geodeticRelativeAltitude"]["geodetic-height-depth"] * u
+    east, north = _int(rel, "relativeEast", -_REL_LIMIT - 1, _REL_LIMIT), _int(rel, "relativeNorth", -_REL_LIMIT - 1, _REL_LIMIT)
+    lat, lon, _ = geo.enu_to_lla(ref_lla, (east * u, north * u, 0.0))
+    alt = _int(rel["relativeAltitude"]["geodeticRelativeAltitude"], "geodetic-height-depth", *_ALT_LIMIT) * u
     return float(lat), float(lon), ref_lla[2] + alt
 
 
@@ -149,7 +174,7 @@ def encode_quality(std_ns: float) -> dict:
 
 
 def decode_quality(d: dict) -> float:
-    return float(d["quality"] * _RTD_RESOLUTION_NS[d["resolution"]])
+    return float(_int(d, "quality", 0, 127) * _RTD_RESOLUTION_NS[_choice(d, "resolution", _RTD_RESOLUTION_NS)])
 
 
 def encode_rtd(rtd: "Rtd") -> dict:
@@ -171,11 +196,12 @@ def encode_rtd(rtd: "Rtd") -> dict:
 
 
 def decode_rtd(info: dict) -> "Rtd":
-    ns = info["fineRTD"] * _FINE_RTD_STEP_NS
+    ns = _int(info, "fineRTD", 0, 99999) * _FINE_RTD_STEP_NS
     if ns >= 500_000:
         ns -= 1_000_000       # the UE takes the closest subframe, so the offset is used within +-0.5 ms
-    return Rtd(ns, decode_quality(info["fineRTDstd"]), info["x_valid_at_gps_ns"], float(info.get("fineRTDdriftRate", 0)),
-               float(info.get("x_drift_std_ns_per_s", 0.0)), info.get("subframeOffset"))
+    drift = _int(info, "fineRTDdriftRate", -100, 100) if "fineRTDdriftRate" in info else 0
+    offset = _int(info, "subframeOffset", 0, 10229) if "subframeOffset" in info else None
+    return Rtd(ns, decode_quality(info["fineRTDstd"]), info["x_valid_at_gps_ns"], float(drift), float(info.get("x_drift_std_ns_per_s", 0.0)), offset)
 
 
 def encode_prs_info(p: "Prs") -> dict:
@@ -192,8 +218,20 @@ def encode_prs_info(p: "Prs") -> dict:
 def decode_prs_info(d: dict) -> "Prs":
     muting = None
     if "prs-MutingInfo-r9" in d:
-        (muting,) = d["prs-MutingInfo-r9"].values()
-    return Prs(int(d["prs-Bandwidth"][1:]), d["prs-ConfigurationIndex"], int(d["numDL-Frames"][3:]), d.get("prsID-r14"), muting)
+        choice = d["prs-MutingInfo-r9"]
+        if not isinstance(choice, dict) or len(choice) != 1:
+            raise ValueError("prs-MutingInfo-r9 is a CHOICE: exactly one alternative")
+        (name, bits), = choice.items()
+        for n in _MUTING_LENGTHS:
+            if name == (f"po{n}-r9" if n <= 16 else f"po{n}-v1420"):
+                muting = _bits(bits, n, name)
+                break
+        else:
+            raise ValueError(f"prs-MutingInfo-r9 alternative {name!r} is not one of po2-r9 .. po16-r9, po32-v1420 .. po1024-v1420")
+    bandwidth = _choice(d, "prs-Bandwidth", [f"n{b}" for b in _PRS_BANDWIDTH_PRB])
+    frames = _choice(d, "numDL-Frames", [f"sf-{n}" for n in _NUM_DL_FRAMES])
+    prs_id = _int(d, "prsID-r14", 0, 4095) if "prsID-r14" in d else None
+    return Prs(int(bandwidth[1:]), _int(d, "prs-ConfigurationIndex", 0, 4095), int(frames[3:]), prs_id, muting)
 
 
 def encode_ecgi(ecgi: tuple[str, str, int]) -> dict:
@@ -205,7 +243,11 @@ def encode_ecgi(ecgi: tuple[str, str, int]) -> dict:
 
 
 def decode_ecgi(d: dict) -> tuple[str, str, int]:
-    return "".join(map(str, d["mcc"])), "".join(map(str, d["mnc"])), int(d["cellidentity"], 2)
+    for key, sizes in (("mcc", (3,)), ("mnc", (2, 3))):
+        v = d[key]
+        if not isinstance(v, list) or len(v) not in sizes or any(isinstance(x, bool) or not isinstance(x, int) or not 0 <= x <= 9 for x in v):
+            raise ValueError(f"ECGI {key} must be {' or '.join(map(str, sizes))} digits 0..9, not {v!r}")
+    return "".join(map(str, d["mcc"])), "".join(map(str, d["mnc"])), int(_bits(d["cellidentity"], 28, "cellidentity"), 2)
 
 
 _RSTD_UNIT_NS = 3 * TS_S * 1e9    # expectedRSTD and its uncertainty are in units of 3 Ts
@@ -223,6 +265,9 @@ def encode_expected(expected_ns: float, uncertainty_ns: float) -> tuple[int, int
 
 
 def decode_expected(value: int, unc: int) -> tuple[float, float]:
+    for what, v, hi in (("expectedRSTD", value, 16383), ("expectedRSTD-Uncertainty", unc, 1023)):
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= hi:
+            raise ValueError(f"{what} must be an integer in 0..{hi}, not {v!r}")
     return (value - 8192) * _RSTD_UNIT_NS, unc * _RSTD_UNIT_NS
 
 
@@ -363,7 +408,7 @@ class AssistanceDocument:
                 neighbours.append(Cell(i["physCellId"], lla[0], lla[1], lla[2], decode_prs_info(i["prsInfo"]) if "prsInfo" in i else prs, decode_rtd(cd["rtdInfo"]),
                                        i.get("cpLength", rinfo["cpLength"]), decode_ecgi(i["cellGlobalId"]) if "cellGlobalId" in i else None, expected, unc,
                                        i.get("slotNumberOffset")))
-        sfn = calc.get("systemFrameNumber")
+        sfn = _bits(calc["systemFrameNumber"], 10, "systemFrameNumber") if "systemFrameNumber" in calc else None
         doc = AssistanceDocument(raw["version"], raw["valid_from_gps_ns"], raw["valid_until_gps_ns"], ref, neighbours,
                                  None if sfn is None else int(sfn, 2),
                                  decode_quality(calc["rtdReferenceStd"]) if "rtdReferenceStd" in calc else None)

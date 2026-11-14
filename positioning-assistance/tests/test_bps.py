@@ -252,6 +252,63 @@ class LppeCoding(unittest.TestCase):
             srv.shutdown(); srv.server_close()
         self.assertIsNone(ModemSfn("http://127.0.0.1:9/none", timeout_s=0.2)(0))   # unreachable: None, not an exception
 
+    def test_the_reader_refuses_what_the_writer_would_not_write(self):
+        # every field of the document that the ASN.1 types with a range, an enumeration or a length is checked on reading as on writing
+        import copy, json
+        d = CellCyclicPrefix().doc()
+        d.reference.ecgi = ("901", "56", 0x19B01)
+        d.reference_sfn = 5
+        d.neighbours[0].prs = Prs(25, 2435, 1, 77, "1010")
+        d.neighbours[0].expected_rstd_ns = 1000.0
+        good = json.loads(d.to_json())
+        AssistanceDocument.from_json(json.dumps(good))                       # the unmodified one reads
+
+        def nb(raw):
+            return raw["neighbours"][0]
+
+        def cell(raw):
+            return nb(raw)["otdoa-eNB-CellDataList"][0]
+
+        def info(raw):
+            return cell(raw)["otdoa-NeighbourCellInfoElement"]
+
+        mutations = {
+            "degreesLatitude too large": lambda r: r["reference"]["positionCalculationInfoRef"]["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"].update(degreesLatitude=2**23),
+            "degreesLongitude too small": lambda r: r["reference"]["positionCalculationInfoRef"]["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"].update(degreesLongitude=-2**23 - 1),
+            "altitude too large": lambda r: r["reference"]["positionCalculationInfoRef"]["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"].update(altitude=2**15),
+            "latitudeSign": lambda r: r["reference"]["positionCalculationInfoRef"]["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"].update(latitudeSign="east"),
+            "relativeNorth too large": lambda r: nb(r)["relative-Location"].update(relativeNorth=524288),
+            "units": lambda r: nb(r)["relative-Location"].update(units="km"),
+            "relative altitude": lambda r: nb(r)["relative-Location"]["relativeAltitude"]["geodeticRelativeAltitude"].update({"geodetic-height-depth": 40000}),
+            "fineRTD 100000": lambda r: cell(r)["rtdInfo"].update(fineRTD=100000),
+            "fineRTD a string": lambda r: cell(r)["rtdInfo"].update(fineRTD="12"),
+            "fineRTDdriftRate 101": lambda r: cell(r)["rtdInfo"].update(fineRTDdriftRate=101),
+            "subframeOffset 10230": lambda r: cell(r)["rtdInfo"].update(subframeOffset=10230),
+            "quality 128": lambda r: cell(r)["rtdInfo"]["fineRTDstd"].update(quality=128),
+            "resolution ns-7": lambda r: cell(r)["rtdInfo"]["fineRTDstd"].update(resolution="ns-7"),
+            "expectedRSTD 16384": lambda r: info(r).update(expectedRSTD=16384),
+            "expectedRSTD-Uncertainty -1": lambda r: info(r).update({"expectedRSTD-Uncertainty": -1}),
+            "expectedRSTD a string": lambda r: info(r).update(expectedRSTD="8192"),
+            "prs-Bandwidth n20": lambda r: info(r)["prsInfo"].update({"prs-Bandwidth": "n20"}),
+            "numDL-Frames sf-3": lambda r: info(r)["prsInfo"].update({"numDL-Frames": "sf-3"}),
+            "prsID-r14 4096": lambda r: info(r)["prsInfo"].update({"prsID-r14": 4096}),
+            "prs-ConfigurationIndex 4096": lambda r: info(r)["prsInfo"].update({"prs-ConfigurationIndex": 4096}),
+            "muting alternative and length differ": lambda r: info(r)["prsInfo"].update({"prs-MutingInfo-r9": {"po8-r9": "1010"}}),
+            "muting alternative unknown": lambda r: info(r)["prsInfo"].update({"prs-MutingInfo-r9": {"po3-r9": "101"}}),
+            "muting two alternatives": lambda r: info(r)["prsInfo"].update({"prs-MutingInfo-r9": {"po2-r9": "10", "po4-r9": "1010"}}),
+            "muting bits": lambda r: info(r)["prsInfo"].update({"prs-MutingInfo-r9": {"po4-r9": "10x0"}}),
+            "ECGI mcc 2 digits": lambda r: r["reference"]["referenceCellInfo"]["cellGlobalId"].update(mcc=[9, 0]),
+            "ECGI mnc digit 10": lambda r: r["reference"]["referenceCellInfo"]["cellGlobalId"].update(mnc=[5, 10]),
+            "ECGI cell identity 27 bits": lambda r: r["reference"]["referenceCellInfo"]["cellGlobalId"].update(cellidentity="1" * 27),
+            "systemFrameNumber 9 bits": lambda r: r["reference"]["positionCalculationInfoRef"].update(systemFrameNumber="1" * 9),
+            "systemFrameNumber digits": lambda r: r["reference"]["positionCalculationInfoRef"].update(systemFrameNumber="2" * 10),
+        }
+        for name, mutate in mutations.items():
+            raw = copy.deepcopy(good)
+            mutate(raw)
+            with self.assertRaises(ValueError, msg=name):
+                AssistanceDocument.from_json(json.dumps(raw))
+
     def test_the_old_schema_is_refused(self):
         import json
         raw = json.loads(CellCyclicPrefix().doc().to_json())
