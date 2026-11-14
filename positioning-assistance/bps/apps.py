@@ -243,9 +243,9 @@ def main() -> None:
     p.add_argument("--port", type=int, default=2155)
     p.add_argument("--c-teid", type=int, default=0xCCCD)
     p.add_argument("--fec", action="store_true",
-                   help="application-layer FEC on the session. Off by default: with it on, the BM-SC fails to send objects of 2 or 3 "
-                        "source symbols (1500 to 3000 bytes here, 'Not enough space in payload buffer for encoding symbol'); the "
-                        "document is repeated every few seconds, which is the redundancy it needs")
+                   help="application-layer FEC on the session (the deck, slide 18 step 7). Off by default. It needs an rt-libflute that sends only as many "
+                        "encoding symbols in a packet as fit (rt-libflute 'File: send only as many encoding symbols in a packet as fit in it'): without it the BM-SC "
+                        "fails to send objects of 2 to 5 source symbols ('Not enough space in payload buffer for encoding symbol')")
     p.add_argument("--path", default="positioning/assistance.json")
     p.add_argument("--interval", type=float, default=5.0)
     p.add_argument("--validity", type=int, default=90)

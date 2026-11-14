@@ -255,7 +255,7 @@ POS_SFN_FROM_MODEM="${POS_SFN_FROM_MODEM:-1}"   # 1: the document states the ref
 POS_REF_ECGI="${POS_REF_ECGI:-}"                 # the reference cell's global identity as MCC-MNC-CELLIDENTITY (cellGlobalId, optional); empty: derived from the eNB configuration (mcc, mnc, enb_id and rr.conf cell_id); "none": not stated
 POS_SERVICE_RADIUS_M="${POS_SERVICE_RADIUS_M:-}"   # how far from the centre of the cells a UE may be, for the search window of expectedRSTD; unset: the largest distance from the centre to a cell
 POS_BROADCAST_AREA="${POS_BROADCAST_AREA:-}"       # the broadcastArea named in the file's envelope (the deck's example has "Area1"); unset: left out
-POS_FEC="${POS_FEC:-false}"                    # true: application-layer FEC on the positioning session (the deck, slide 18 step 7: "FEC decoding"); off by default, see bps.apps publish --fec
+POS_FEC="${POS_FEC:-false}"                    # true: application-layer FEC on the positioning session (the deck, slide 18 step 7: "FEC decoding"); off by default; needs the rt-libflute fix "File: send only as many encoding symbols in a packet as fit in it" in the BM-SC build (see bps.apps publish --fec)
 POS_DELIVER="${POS_DELIVER:-file}"              # file: the assistance file goes over the air; url: its URL does (on the demo origin), and the UE fetches the file (the deck, slide 18)
 POS_CELL_CFO="${POS_CELL_CFO:-}"                # per-cell carrier frequency offsets of the emulated cells in Hz, e.g. "3=150 4=-80" (separate oscillators); unset: none
 POS_CELL_CP="${POS_CELL_CP:-}"                 # per-cell cyclic prefix, e.g. "3=normal 4=normal": stated in the document (publisher) and used by the mixer for that emulated cell. Unset: every cell has the serving cell's
