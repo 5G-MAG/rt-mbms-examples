@@ -12,6 +12,7 @@ import urllib.request
 import numpy as np
 
 from . import geo, lab
+from .assistance import AssistanceDocument
 from .live import ModemSfn
 from .modem_prs import ModemPrs, ModemRefused
 from .publisher import Publisher
@@ -42,6 +43,11 @@ def _ecgi(text):
         raise SystemExit(f"--ref-ecgi wants MCC-MNC-CELLIDENTITY, e.g. 901-56-0x19B01, not {text!r}")
 
 
+def _sent_version(sent: bytes) -> int:
+    """The version of a document the publisher has just sent, for its log line."""
+    return AssistanceDocument.from_json(sent.decode()).version
+
+
 def _fetch(url: str, timeout: float = 5.0) -> bytes:
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return r.read()
@@ -65,13 +71,14 @@ def cmd_publish(a) -> None:
         portal.set_state(svc, session, "Active")
         print(f"session {session} on service {svc} active", flush=True)
     sfn_at = ModemSfn(a.sfn_from_modem) if a.sfn_from_modem else None
-    pub = Publisher(net, monitor, lambda body: xmbu.push(session, a.path, body), validity_s=a.validity, sfn_at=sfn_at)
+    pub = Publisher(net, monitor, lambda body: xmbu.push(session, a.path, body), validity_s=a.validity, sfn_at=sfn_at,
+                    repeat_interval_s=a.interval, broadcast_area=a.broadcast_area, leap_seconds=a.leap_seconds)
     end = time.time() + a.seconds if a.seconds else None
     while end is None or time.time() < end:
         now = lab.host_gps_ns(a.leap_seconds)
         monitor.add(world.monitor_epoch(now))
         sent = pub.publish_once(now)
-        print(f"{time.strftime('%H:%M:%S')} " + ("pushed %d bytes, version %d" % (len(sent), json.loads(sent)["version"]) if sent
+        print(f"{time.strftime('%H:%M:%S')} " + ("pushed %d bytes, version %d" % (len(sent), _sent_version(sent)) if sent
                                                     else "collecting monitoring epochs"), flush=True)
         time.sleep(a.interval)
 
@@ -216,6 +223,7 @@ def main() -> None:
     p.add_argument("--leap-seconds", type=int, default=18)
     p.add_argument("--seconds", type=float, default=0, help="stop after this long (0 = run until killed)")
     p.add_argument("--sfn-from-modem", metavar="URL", help="state the reference cell's SFN at the time the RTDs hold (OMA-LPPe systemFrameNumber), taken from the SFN boundary and time in the modem's sib_info at this URL (lab: same host as the transmitter)")
+    p.add_argument("--broadcast-area", help="the broadcastArea of the file's envelope (the deck's slide 14), when the broadcaster names one")
     p.add_argument("--cp", choices=("normal", "extended"), default="extended", help="the real cell's cyclic prefix, stated in the document (cpLength of the reference cell is mandatory)")
     p.add_argument("--ref-ecgi", metavar="MCC-MNC-CELLID", help="the reference cell's global identity (cellGlobalId, optional), e.g. 901-56-0x19B01")
     p.add_argument("--service-radius-m", type=float, help="how far from the centre of the cells a UE may be (default: the largest distance from the centre to a cell); sets the search window of expectedRSTD")

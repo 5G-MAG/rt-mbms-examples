@@ -12,8 +12,10 @@ SPEC-CLAIMS.md "OMA LPPe".
 """
 from __future__ import annotations
 
+import datetime
 import json
 import math
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -21,7 +23,9 @@ import numpy as np
 from . import geo
 from .timebase import TS_S, prs_period_offset
 
-SCHEMA = "bps-assistance/2-draft"  # [design] draft, versioned so a UE can refuse what it does not know (0: own RTD and position blocks; 1: LPPe values in a flat layout)
+SCHEMA = "bps-assistance/3-draft"  # [design] draft, versioned so a UE can refuse what it does not know (0: own RTD and position blocks; 1: LPPe values in a flat layout; 2: the IEs nested; 3: in the envelope of the deck)
+_GPS_EPOCH = datetime.datetime(1980, 1, 6, tzinfo=datetime.timezone.utc)
+_AUTHOR = "5G-MAG"
 
 # [spec] TS 37.355 V19.3.0 clause 6.5.1.2 PRS-Info: prs-Bandwidth {n6,...,n100}, numDL-Frames {sf-1,sf-2,sf-4,sf-6}.
 _PRS_BANDWIDTH_PRB = (6, 15, 25, 50, 75, 100)
@@ -310,6 +314,12 @@ class AssistanceDocument:
     neighbours: list[Cell] = field(default_factory=list)
     reference_sfn: int | None = None   # the reference cell's SFN at the time the RTDs hold (OMA-LPPe-OTDOA-PositionCalculationInfoRef systemFrameNumber, BIT STRING (SIZE(10)))
     reference_rtd_std_ns: float | None = None   # rtdReferenceStd: the standard deviation of the reference cell's timing used to determine the RTDs
+    service_id: str = "PositioningService"      # envelope (deck, slide 14): serviceId
+    service_name: str = "MBMS Assistance Data Delivery"
+    broadcast_area: str | None = None           # envelope: broadcastArea, when the broadcaster names one
+    repeat_interval_s: float | None = None      # envelope: fileSchedule repeatInterval, how often the publisher sends the file
+    created_gps_ns: int | None = None           # envelope: metadata createdDate
+    leap_seconds: int = 18                      # GPS minus UTC, for the ISO 8601 times of the envelope (the exact validity is in x_ fields)
 
     def validate(self) -> None:
         cells = [self.reference, *self.neighbours]
@@ -346,7 +356,41 @@ class AssistanceDocument:
         if self.valid_until_gps_ns <= self.valid_from_gps_ns:
             raise ValueError("validity window is empty")
 
+    def _iso(self, gps_ns: int) -> str:
+        utc = _GPS_EPOCH + datetime.timedelta(microseconds=gps_ns // 1000 - self.leap_seconds * 1_000_000)
+        return utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z"
+
     def to_json(self) -> str:
+        """The file the publisher sends: the key-value envelope of the deck (slide 14, "Sample JSON file containing positioning assistance data": MBMSDelivery with serviceId,
+        serviceName, deliveryMethod, fileSchedule, textData of textId, title and contents of contentId, content and author, and metadata), holding the IEs of `_ie_dict`.
+        The deck says the example is to be replicated for every parameter needed: the physical and global cell identity are entries of their own, as in the example, and
+        each IE is the content of an entry of the cell it belongs to. The exact validity (GPS nanoseconds) is in the x_ fields of the metadata; the ISO 8601 times are for readers."""
+        ie = self._ie_dict()
+        ref = self.reference
+        ref_contents = [{"contentId": "PHY Reference Cell ID", "content": str(ref.phys_cell_id), "author": _AUTHOR}]
+        if ref.ecgi is not None:
+            ref_contents.append({"contentId": "Global Reference Cell ID", "content": "-".join(map(str, ref.ecgi)), "author": _AUTHOR})
+        ref_contents.append({"contentId": "OMA-LPPe-OTDOA-ReferenceCellInfo", "content": ie["reference"], "author": _AUTHOR})
+        text_data = [{"textId": "eNBRefInfo", "title": "Reference eNB information", "contents": ref_contents}]
+        for n in ie["neighbours"]:
+            cid = n["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["physCellId"]
+            text_data.append({"textId": f"eNBNeighbourInfo{cid}", "title": f"Neighbour eNB {cid} information",
+                              "contents": [{"contentId": "PHY Cell ID", "content": str(cid), "author": _AUTHOR},
+                                           {"contentId": "OMA-LPPe-OTDOA-NeighbourCellInfoElement-eNB", "content": n, "author": _AUTHOR}]})
+        schedule = {"startTime": self._iso(self.valid_from_gps_ns), "endTime": self._iso(self.valid_until_gps_ns)}
+        if self.repeat_interval_s is not None:
+            schedule["repeatInterval"] = f"PT{self.repeat_interval_s:g}S"
+        meta = {"description": "Positioning assistance data for 5G Broadcast", "version": str(self.version), "createdBy": _AUTHOR,
+                "x_valid_from_gps_ns": self.valid_from_gps_ns, "x_valid_until_gps_ns": self.valid_until_gps_ns, "x_leap_seconds": self.leap_seconds}
+        if self.created_gps_ns is not None:
+            meta["createdDate"] = self._iso(self.created_gps_ns)
+        delivery = {"serviceId": self.service_id, "serviceName": self.service_name}
+        if self.broadcast_area is not None:
+            delivery["broadcastArea"] = self.broadcast_area
+        delivery.update({"deliveryMethod": "broadcast", "fileSchedule": schedule, "textData": text_data, "metadata": meta})
+        return json.dumps({"schema": SCHEMA, "MBMSDelivery": delivery}, indent=1)
+
+    def _ie_dict(self) -> dict:
         """The document as the IEs of OMA-TS-LPPe V2.0 and TS 37.355 nest them: OMA-LPPe-OTDOA-ReferenceCellInfo for the reference cell and one
         OMA-LPPe-OTDOA-NeighbourCellInfoElement-eNB per neighbour (a neighbour with the reference cell's cyclic prefix or PRS-Info leaves them out, as the conditions
         of the IEs require). The container (schema, version, validity window) is this prototype's own."""
@@ -383,16 +427,34 @@ class AssistanceDocument:
             return {"relative-Location": encode_relative(ref_lla, (c.latitude_deg, c.longitude_deg, c.height_m)),
                     "otdoa-eNB-CellDataList": [{"otdoa-NeighbourCellInfoElement": info, "rtdInfo": encode_rtd(c.rtd)}]}
 
-        return json.dumps({"schema": SCHEMA, "version": self.version, "valid_from_gps_ns": self.valid_from_gps_ns,
-                           "valid_until_gps_ns": self.valid_until_gps_ns,
-                           "reference": {"referenceCellInfo": ref_info, "positionCalculationInfoRef": calc},
-                           "neighbours": [neighbour(c) for c in self.neighbours]}, indent=1)
+        return {"schema": SCHEMA, "version": self.version, "valid_from_gps_ns": self.valid_from_gps_ns, "valid_until_gps_ns": self.valid_until_gps_ns,
+                "reference": {"referenceCellInfo": ref_info, "positionCalculationInfoRef": calc}, "neighbours": [neighbour(c) for c in self.neighbours]}
+
+    @staticmethod
+    def unwrap(raw: dict) -> dict:
+        """The IE view of a document read from the envelope: what `_ie_dict` builds (schema, version, validity, reference, neighbours)."""
+        if raw.get("schema") != SCHEMA:
+            raise ValueError(f"unknown schema {raw.get('schema')!r}")
+        delivery = raw["MBMSDelivery"]
+        if delivery.get("deliveryMethod") != "broadcast":
+            raise ValueError(f"deliveryMethod must be broadcast, not {delivery.get('deliveryMethod')!r}")
+        meta = delivery["metadata"]
+        ref = None
+        neighbours = []
+        for t in delivery["textData"]:
+            for c in t["contents"]:
+                if c["contentId"] == "OMA-LPPe-OTDOA-ReferenceCellInfo" and t["textId"] == "eNBRefInfo":
+                    ref = c["content"]
+                elif c["contentId"] == "OMA-LPPe-OTDOA-NeighbourCellInfoElement-eNB":
+                    neighbours.append(c["content"])
+        if ref is None:
+            raise ValueError("no OMA-LPPe-OTDOA-ReferenceCellInfo in textData")
+        return {"schema": raw["schema"], "version": int(meta["version"]), "valid_from_gps_ns": meta["x_valid_from_gps_ns"], "valid_until_gps_ns": meta["x_valid_until_gps_ns"],
+                "reference": ref, "neighbours": neighbours, "x_leap_seconds": meta.get("x_leap_seconds", 18), "x_delivery": delivery}
 
     @staticmethod
     def from_json(text: str) -> "AssistanceDocument":
-        raw = json.loads(text)
-        if raw.get("schema") != SCHEMA:
-            raise ValueError(f"unknown schema {raw.get('schema')!r}")
+        raw = AssistanceDocument.unwrap(json.loads(text))
         rinfo, calc = raw["reference"]["referenceCellInfo"], raw["reference"]["positionCalculationInfoRef"]
         ref_point = calc["cellLocation"]["reference-point"]["referencePointGeographicLocation"]["location3D"]
         ref_lla = decode_point(ref_point)
@@ -412,6 +474,20 @@ class AssistanceDocument:
         doc = AssistanceDocument(raw["version"], raw["valid_from_gps_ns"], raw["valid_until_gps_ns"], ref, neighbours,
                                  None if sfn is None else int(sfn, 2),
                                  decode_quality(calc["rtdReferenceStd"]) if "rtdReferenceStd" in calc else None)
+        delivery = raw["x_delivery"]
+        doc.leap_seconds = int(raw["x_leap_seconds"])
+        doc.service_id, doc.service_name, doc.broadcast_area = delivery["serviceId"], delivery["serviceName"], delivery.get("broadcastArea")
+        interval = delivery["fileSchedule"].get("repeatInterval")
+        if interval is not None:
+            m = re.fullmatch(r"PT([0-9.]+)S", interval)
+            if not m:
+                raise ValueError(f"repeatInterval must be of the form PT<seconds>S, not {interval!r}")
+            doc.repeat_interval_s = float(m.group(1))
+        created = delivery["metadata"].get("createdDate")
+        if created is not None:
+            t = datetime.datetime.strptime(created, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=datetime.timezone.utc)
+            td = t - _GPS_EPOCH
+            doc.created_gps_ns = ((td.days * 86400 + td.seconds + doc.leap_seconds) * 1_000_000 + td.microseconds) * 1000
         doc.validate()
         return doc
 

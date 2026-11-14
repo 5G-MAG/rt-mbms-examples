@@ -18,6 +18,12 @@ from bps.xmb import PortalClient, SessionSpec, XmbError, XmbUClient
 T0 = 10**18  # network time of the first monitoring epoch, GPS ns (synthetic)
 
 
+def load(text):
+    """The envelope of a document as sent, and its IE view (the IE dicts are the ones inside the envelope)."""
+    env = json.loads(text)
+    return env, AssistanceDocument.unwrap(env)
+
+
 def make_network():
     sites = []
     for i, p in enumerate(CELLS_ENU):
@@ -132,20 +138,20 @@ class Chain(unittest.TestCase):
     def test_the_document_states_the_reference_sfn_when_the_broadcaster_can_say(self):
         seen = []
         self.pub._sfn_at = lambda t: (seen.append(t), 777)[1]
-        doc = json.loads(self.pub.publish_once(self.t_last))
+        doc_env, doc = load(self.pub.publish_once(self.t_last))
         self.assertEqual(doc["reference"]["positionCalculationInfoRef"]["systemFrameNumber"], "1100001001")   # 777 as a 10 bit string
         self.assertEqual(len(set(seen)), 1)                                            # asked for the instant the RTDs hold
-        self.assertEqual(AssistanceDocument.from_json(json.dumps(doc)).reference_sfn, 777)
+        self.assertEqual(AssistanceDocument.from_json(json.dumps(doc_env)).reference_sfn, 777)
 
     def test_the_publisher_fills_what_the_ies_make_mandatory(self):
         from bps.assistance import decode_expected
-        doc = json.loads(self.pub.publish_once(self.t_last))
+        doc_env, doc = load(self.pub.publish_once(self.t_last))
         for n in doc["neighbours"]:
             info = n["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]
             self.assertIn("expectedRSTD", info)
             self.assertIn("expectedRSTD-Uncertainty", info)
             self.assertNotIn("subframeOffset", n["otdoa-eNB-CellDataList"][0]["rtdInfo"])    # no site says it knows one
-        back = AssistanceDocument.from_json(json.dumps(doc))
+        back = AssistanceDocument.from_json(json.dumps(doc_env))
         # the window contains the RSTD a UE at the lab position gets from the document's own geometry and RTDs
         ue = geo.enu_to_lla(ORIGIN_LLA, UE)
         t = (back.valid_from_gps_ns + back.valid_until_gps_ns) // 2
@@ -155,11 +161,11 @@ class Chain(unittest.TestCase):
             self.assertLessEqual(abs(rstd - c.expected_rstd_ns), c.expected_rstd_uncertainty_ns, c.phys_cell_id)
 
     def test_the_reference_std_comes_from_the_monitor_when_it_knows_its_noise(self):
-        none = json.loads(self.pub.publish_once(self.t_last))
+        none_env, none = load(self.pub.publish_once(self.t_last))
         self.assertNotIn("rtdReferenceStd", none["reference"]["positionCalculationInfoRef"])
         mon, t_last = monitoring(self.net, TRUTH, timestamp_sigma_ns=20.0)
         pub = Publisher(self.net, mon, lambda body: None)
-        doc = json.loads(pub.publish_once(t_last))
+        doc_env, doc = load(pub.publish_once(t_last))
         self.assertEqual(doc["reference"]["positionCalculationInfoRef"]["rtdReferenceStd"], {"resolution": "ns-5", "quality": 4})
 
     def test_subframe_offsets_from_the_sites_are_stated_and_the_ue_refuses_nonzero_ones(self):
@@ -167,31 +173,41 @@ class Chain(unittest.TestCase):
         sites = tuple(dataclasses.replace(s, subframe_offset=0) for s in self.net.neighbours)
         pub = Publisher(Network(self.net.reference, sites), self.mon, lambda body: None)
         raw = pub.publish_once(self.t_last)
-        for n in json.loads(raw)["neighbours"]:
+        for n in load(raw)[1]["neighbours"]:
             self.assertEqual(n["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"], 0)
         self.assertEqual(AssistanceStore().ingest(raw), "accepted")
-        bad = json.loads(raw)
+        bad_env, bad = load(raw)
         bad["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 3
-        self.assertIn("subframeOffset 3", AssistanceStore().ingest(json.dumps(bad).encode()))
-        bad = json.loads(raw)
+        self.assertIn("subframeOffset 3", AssistanceStore().ingest(json.dumps(bad_env).encode()))
+        bad_env, bad = load(raw)
         bad["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"] = 2
-        self.assertIn("slotNumberOffset 2", AssistanceStore().ingest(json.dumps(bad).encode()))
+        self.assertIn("slotNumberOffset 2", AssistanceStore().ingest(json.dumps(bad_env).encode()))
+
+    def test_the_envelope_is_filled_by_the_publisher(self):
+        pub = Publisher(self.net, self.mon, lambda body: None, repeat_interval_s=5.0, broadcast_area="Area1", leap_seconds=18)
+        env, ie = load(pub.publish_once(self.t_last))
+        m = env["MBMSDelivery"]
+        self.assertEqual((m["broadcastArea"], m["fileSchedule"]["repeatInterval"]), ("Area1", "PT5S"))
+        self.assertIn("createdDate", m["metadata"])
+        back = AssistanceDocument.from_json(json.dumps(env))
+        self.assertEqual((back.created_gps_ns, back.repeat_interval_s, back.leap_seconds), (self.t_last, 5.0, 18))
+        self.assertNotIn("broadcastArea", load(self.pub.publish_once(self.t_last))[0]["MBMSDelivery"])      # not named: left out
 
     def test_no_sfn_when_it_cannot_be_said(self):
         for fn in (None, lambda t: None):
             self.pub._sfn_at = fn
-            doc = json.loads(self.pub.publish_once(self.t_last))
+            doc_env, doc = load(self.pub.publish_once(self.t_last))
             self.assertNotIn("systemFrameNumber", doc["reference"]["positionCalculationInfoRef"])
-            self.assertIsNone(AssistanceDocument.from_json(json.dumps(doc)).reference_sfn)
+            self.assertIsNone(AssistanceDocument.from_json(json.dumps(doc_env)).reference_sfn)
 
     def test_drift_in_the_document_matters(self):
         body = self.pub.publish_once(self.t_last)
-        doc = json.loads(body)
+        doc_env, doc = load(body)
         for c in doc["neighbours"]:
             rtd = c["otdoa-eNB-CellDataList"][0]["rtdInfo"]
             rtd["fineRTDdriftRate"] = 0
             rtd["x_drift_std_ns_per_s"] = 0.0
-        zeroed = json.dumps(doc).encode()
+        zeroed = json.dumps(doc_env).encode()
         errs = []
         for raw in (body, zeroed):
             clock, store = self.ue(raw, self.t_last, 0)
@@ -238,15 +254,15 @@ class Chain(unittest.TestCase):
         self.assertTrue(store.ingest(first).startswith("ignored"))
         self.assertTrue(store.ingest(second).startswith("ignored"))        # same version again
         self.assertTrue(store.ingest(b"{not json").startswith("rejected"))
-        broken = json.loads(second)
-        broken["version"] += 5
+        broken_env, broken = load(second)
+        broken_env["MBMSDelivery"]["metadata"]["version"] = str(broken["version"] + 5)
         broken["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["prsInfo"]["prs-ConfigurationIndex"] = 3000          # reserved index
-        self.assertTrue(store.ingest(json.dumps(broken).encode()).startswith("rejected"))
-        self.assertEqual(store.current(self.t_last + 2 * 10**9).version, json.loads(second)["version"])
+        self.assertTrue(store.ingest(json.dumps(broken_env).encode()).startswith("rejected"))
+        self.assertEqual(store.current(self.t_last + 2 * 10**9).version, load(second)[1]["version"])
 
     def test_versions_increase_even_within_one_second(self):
-        a = json.loads(self.pub.publish_once(self.t_last))["version"]
-        b = json.loads(self.pub.publish_once(self.t_last + 10))["version"]
+        a = load(self.pub.publish_once(self.t_last))[1]["version"]
+        b = load(self.pub.publish_once(self.t_last + 10))[1]["version"]
         self.assertGreater(b, a)
 
     def test_validity_starts_before_the_document_was_made(self):

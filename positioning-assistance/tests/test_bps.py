@@ -1,3 +1,4 @@
+import json
 import math
 import unittest
 
@@ -11,6 +12,12 @@ from bps.solver import solve_rstd, ue_time_ns
 from bps.timebase import (C_MPS, SUBFRAME_NS, TS_S, TimeAnchor, _PRS_TABLE, gps_ns_to_sib16_r15_fields, is_prs_occasion_start,
                           next_prs_occasion_start, prs_period_offset, sib16_r11_to_gps_ns,
                           sib16_r15_time_to_ns)
+
+
+def load(text):
+    """The envelope of a document as sent, and its IE view (what unwrap gives: schema, version, validity, reference, neighbours; the IE dicts are the ones inside the envelope)."""
+    env = json.loads(text)
+    return env, AssistanceDocument.unwrap(env)
 
 
 class LppeCoding(unittest.TestCase):
@@ -84,8 +91,8 @@ class LppeCoding(unittest.TestCase):
 
     def test_the_wire_nests_the_lppe_ies(self):
         import json
-        raw = json.loads(CellCyclicPrefix().doc().to_json())
-        self.assertEqual(raw["schema"], "bps-assistance/2-draft")
+        env, raw = load(CellCyclicPrefix().doc().to_json())
+        self.assertEqual(raw["schema"], "bps-assistance/3-draft")
         ref = raw["reference"]
         self.assertEqual(set(ref), {"referenceCellInfo", "positionCalculationInfoRef"})         # OMA-LPPe-OTDOA-ReferenceCellInfo
         self.assertEqual(set(ref["referenceCellInfo"]), {"physCellId", "cpLength", "prsInfo"})
@@ -100,7 +107,43 @@ class LppeCoding(unittest.TestCase):
         self.assertEqual(set(cd["rtdInfo"]) - {"x_drift_std_ns_per_s", "x_valid_at_gps_ns"}, {"fineRTD", "fineRTDstd", "fineRTDdriftRate"})
         self.assertEqual(set(cd["otdoa-NeighbourCellInfoElement"]), {"physCellId", "expectedRSTD", "expectedRSTD-Uncertainty"})   # same prsInfo and cpLength: left out
         for old in ("latitude_deg", "rtd_ns", "std_ns", "height_m", "cp_length", "phys_cell_id"):
-            self.assertNotIn('"%s"' % old, json.dumps(raw))
+            self.assertNotIn('"%s"' % old, json.dumps(env))
+
+    def test_the_file_is_the_envelope_of_the_deck(self):
+        # slide 14, "Sample JSON file containing positioning assistance data"
+        d = CellCyclicPrefix().doc()
+        d.reference.ecgi = ("901", "56", 0x19B01)
+        d.broadcast_area = "Area1"
+        d.repeat_interval_s = 5.0
+        d.created_gps_ns = 1_478_698_084 * 10**9 + 250_000_000
+        d.valid_from_gps_ns, d.valid_until_gps_ns = 1_478_698_054 * 10**9, 1_478_698_174 * 10**9
+        env = json.loads(d.to_json())
+        m = env["MBMSDelivery"]
+        self.assertEqual((m["serviceId"], m["serviceName"], m["deliveryMethod"], m["broadcastArea"]), ("PositioningService", "MBMS Assistance Data Delivery", "broadcast", "Area1"))
+        self.assertEqual(m["fileSchedule"], {"startTime": "2026-11-14T13:27:16.000Z", "endTime": "2026-11-14T13:29:16.000Z", "repeatInterval": "PT5S"})
+        self.assertEqual([t["textId"] for t in m["textData"]], ["eNBRefInfo", "eNBNeighbourInfo2"])
+        ref = m["textData"][0]
+        self.assertEqual(ref["title"], "Reference eNB information")
+        self.assertEqual([(c["contentId"], c["content"]) for c in ref["contents"][:2]], [("PHY Reference Cell ID", "1"), ("Global Reference Cell ID", "901-56-105217")])
+        self.assertTrue(all(c["author"] == "5G-MAG" for t in m["textData"] for c in t["contents"]))
+        self.assertEqual(set(m["metadata"]) - {"x_valid_from_gps_ns", "x_valid_until_gps_ns", "x_leap_seconds"}, {"description", "version", "createdBy", "createdDate"})
+        self.assertEqual(m["metadata"]["createdDate"], "2026-11-14T13:27:46.250Z")
+        back = AssistanceDocument.from_json(d.to_json())
+        self.assertEqual((back.valid_from_gps_ns, back.valid_until_gps_ns, back.broadcast_area, back.repeat_interval_s, back.created_gps_ns, back.service_id),
+                         (d.valid_from_gps_ns, d.valid_until_gps_ns, "Area1", 5.0, d.created_gps_ns, "PositioningService"))
+        for bad in ("narrowcast",):
+            env2 = json.loads(d.to_json())
+            env2["MBMSDelivery"]["deliveryMethod"] = bad
+            with self.assertRaises(ValueError):
+                AssistanceDocument.from_json(json.dumps(env2))
+        env3 = json.loads(d.to_json())
+        env3["MBMSDelivery"]["fileSchedule"]["repeatInterval"] = "5 seconds"
+        with self.assertRaises(ValueError):
+            AssistanceDocument.from_json(json.dumps(env3))
+        env4 = json.loads(d.to_json())
+        env4["MBMSDelivery"]["textData"] = env4["MBMSDelivery"]["textData"][1:]
+        with self.assertRaises(ValueError):                                       # no reference cell
+            AssistanceDocument.from_json(json.dumps(env4))
 
     def test_prs_info_as_the_asn1_names_it(self):
         from bps.assistance import Prs, encode_prs_info, decode_prs_info
@@ -115,7 +158,7 @@ class LppeCoding(unittest.TestCase):
         import json
         d = CellCyclicPrefix().doc()
         d.neighbours[0].prs = Prs(25, 2435, 1, 77, "10")
-        raw = json.loads(d.to_json())
+        env, raw = load(d.to_json())
         self.assertEqual(raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["prsInfo"]["prsID-r14"], 77)
         self.assertEqual(AssistanceDocument.from_json(d.to_json()).neighbours[0].prs, Prs(25, 2435, 1, 77, "10"))
 
@@ -129,7 +172,7 @@ class LppeCoding(unittest.TestCase):
                 encode_ecgi(bad)
         d = CellCyclicPrefix().doc()
         d.reference.ecgi = ("901", "56", 0x19B01)
-        raw = json.loads(d.to_json())
+        env, raw = load(d.to_json())
         self.assertEqual(raw["reference"]["referenceCellInfo"]["cellGlobalId"]["mnc"], [5, 6])
         self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference.ecgi, ("901", "56", 0x19B01))
         self.assertIsNone(AssistanceDocument.from_json(CellCyclicPrefix().doc().to_json()).reference.ecgi)
@@ -187,7 +230,7 @@ class LppeCoding(unittest.TestCase):
         d = CellCyclicPrefix().doc()
         d.reference_rtd_std_ns = 20.0
         d.neighbours[0].slot_number_offset = 0
-        raw = json.loads(d.to_json())
+        env, raw = load(d.to_json())
         self.assertEqual(raw["reference"]["positionCalculationInfoRef"]["rtdReferenceStd"], {"resolution": "ns-5", "quality": 4})
         self.assertEqual(raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"], 0)
         back = AssistanceDocument.from_json(d.to_json())
@@ -204,12 +247,12 @@ class LppeCoding(unittest.TestCase):
 
     def test_co_located_cells_share_a_location(self):
         import json
-        raw = json.loads(CellCyclicPrefix().doc().to_json())
+        env, raw = load(CellCyclicPrefix().doc().to_json())
         el = raw["neighbours"][0]
         second = json.loads(json.dumps(el["otdoa-eNB-CellDataList"][0]))
         second["otdoa-NeighbourCellInfoElement"]["physCellId"] = 9
         el["otdoa-eNB-CellDataList"].append(second)
-        back = AssistanceDocument.from_json(json.dumps(raw))
+        back = AssistanceDocument.from_json(json.dumps(env))
         self.assertEqual([c.phys_cell_id for c in back.neighbours], [2, 9])
         self.assertEqual((back.neighbours[0].latitude_deg, back.neighbours[0].longitude_deg), (back.neighbours[1].latitude_deg, back.neighbours[1].longitude_deg))
 
@@ -217,7 +260,7 @@ class LppeCoding(unittest.TestCase):
         import json
         d = CellCyclicPrefix().doc()
         d.reference_sfn = 1023
-        self.assertEqual(json.loads(d.to_json())["reference"]["positionCalculationInfoRef"]["systemFrameNumber"], "1111111111")
+        self.assertEqual(load(d.to_json())[1]["reference"]["positionCalculationInfoRef"]["systemFrameNumber"], "1111111111")
         self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference_sfn, 1023)
         d.reference_sfn = 0
         self.assertEqual(AssistanceDocument.from_json(d.to_json()).reference_sfn, 0)    # zero is a value, not an absent field
@@ -260,8 +303,8 @@ class LppeCoding(unittest.TestCase):
         d.reference_sfn = 5
         d.neighbours[0].prs = Prs(25, 2435, 1, 77, "1010")
         d.neighbours[0].expected_rstd_ns = 1000.0
-        good = json.loads(d.to_json())
-        AssistanceDocument.from_json(json.dumps(good))                       # the unmodified one reads
+        genv, good = load(d.to_json())
+        AssistanceDocument.from_json(json.dumps(genv))                       # the unmodified one reads
 
         def nb(raw):
             return raw["neighbours"][0]
@@ -304,14 +347,20 @@ class LppeCoding(unittest.TestCase):
             "systemFrameNumber digits": lambda r: r["reference"]["positionCalculationInfoRef"].update(systemFrameNumber="2" * 10),
         }
         for name, mutate in mutations.items():
-            raw = copy.deepcopy(good)
-            mutate(raw)
+            env2 = copy.deepcopy(genv)
+            mutate(AssistanceDocument.unwrap(env2))
             with self.assertRaises(ValueError, msg=name):
-                AssistanceDocument.from_json(json.dumps(raw))
+                AssistanceDocument.from_json(json.dumps(env2))
+
+    def test_the_publisher_log_line_reads_the_version_from_the_file_it_sent(self):
+        from bps.apps import _sent_version
+        d = CellCyclicPrefix().doc()
+        d.version = 1478698084
+        self.assertEqual(_sent_version(d.to_json().encode()), 1478698084)
 
     def test_the_old_schema_is_refused(self):
         import json
-        raw = json.loads(CellCyclicPrefix().doc().to_json())
+        env, raw = load(CellCyclicPrefix().doc().to_json())
         raw["schema"] = "bps-assistance/0-draft"
         with self.assertRaises(ValueError):
             AssistanceDocument.from_json(json.dumps(raw))
@@ -333,10 +382,10 @@ class CellCyclicPrefix(unittest.TestCase):
 
     def test_a_neighbour_with_the_reference_prefix_leaves_it_out(self):
         import json
-        raw = json.loads(self.doc("extended", "extended").to_json())
+        env, raw = load(self.doc("extended", "extended").to_json())
         self.assertNotIn("cpLength", raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"])   # NotSameAsRef1: otherwise not present
-        self.assertEqual(AssistanceDocument.from_json(json.dumps(raw)).neighbours[0].cp_length, "extended")      # read as the reference cell's
-        raw = json.loads(self.doc("extended", "normal").to_json())
+        self.assertEqual(AssistanceDocument.from_json(json.dumps(env)).neighbours[0].cp_length, "extended")      # read as the reference cell's
+        env, raw = load(self.doc("extended", "normal").to_json())
         self.assertEqual(raw["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["cpLength"], "normal")
 
     def test_the_reference_cell_must_state_it(self):

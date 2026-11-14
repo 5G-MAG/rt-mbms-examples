@@ -254,6 +254,8 @@ POS_RIG_CP="${POS_RIG_CP:-}"                 # extended or normal: the real cell
 POS_SFN_FROM_MODEM="${POS_SFN_FROM_MODEM:-1}"   # 1: the document states the reference cell's SFN (OMA-LPPe systemFrameNumber), read from the modem's SIB16 boundary and time; 0: leave it out
 POS_REF_ECGI="${POS_REF_ECGI:-}"                 # the reference cell's global identity as MCC-MNC-CELLIDENTITY (cellGlobalId, optional); empty: derived from the eNB configuration (mcc, mnc, enb_id and rr.conf cell_id); "none": not stated
 POS_SERVICE_RADIUS_M="${POS_SERVICE_RADIUS_M:-}"   # how far from the centre of the cells a UE may be, for the search window of expectedRSTD; unset: the largest distance from the centre to a cell
+POS_BROADCAST_AREA="${POS_BROADCAST_AREA:-}"       # the broadcastArea named in the file's envelope (the deck's example has "Area1"); unset: left out
+POS_FEC="${POS_FEC:-false}"                    # true: application-layer FEC on the positioning session (the deck, slide 18 step 7: "FEC decoding"); off by default, see bps.apps publish --fec
 POS_CELL_CP="${POS_CELL_CP:-}"                 # per-cell cyclic prefix, e.g. "3=normal 4=normal": stated in the document (publisher) and used by the mixer for that emulated cell. Unset: every cell has the serving cell's
 POS_RIG_CELL_CP="${POS_RIG_CELL_CP-$POS_CELL_CP}"   # the cyclic prefixes the mixer gives its emulated cells; by default those the document states (set it empty, or differently, to test a document that does not match what is on the air)
 POS_RIG_PRS="${POS_RIG_PRS:-true}"             # false: the transmitter sends no PRS but the mixer stays in the path (a control for measuring what PRS costs)

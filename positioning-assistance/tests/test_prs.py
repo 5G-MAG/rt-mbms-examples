@@ -461,10 +461,10 @@ class AssistanceSchema(unittest.TestCase):
 
     def test_a_document_without_the_optional_fields_still_loads(self):
         import json
-        raw = json.loads(self.doc(prs_id=300, muting="0110").to_json())
+        env = json.loads(self.doc(prs_id=300, muting="0110").to_json())
         for k in ("prsID-r14", "prs-MutingInfo-r9"):
-            raw["reference"]["referenceCellInfo"]["prsInfo"].pop(k)
-        back = AssistanceDocument.from_json(json.dumps(raw))
+            AssistanceDocument.unwrap(env)["reference"]["referenceCellInfo"]["prsInfo"].pop(k)
+        back = AssistanceDocument.from_json(json.dumps(env))
         self.assertIsNone(back.reference.prs.prs_id)
         self.assertIsNone(back.reference.prs.muting)
 

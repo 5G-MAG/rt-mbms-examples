@@ -46,11 +46,13 @@ class Publisher:
     """
 
     def __init__(self, network: Network, monitor: RtdMonitor, push: Callable[[bytes], None], validity_s: int = 90,
-                 backdate_s: int = 30, sfn_at: Optional[Callable[[int], Optional[int]]] = None):
+                 backdate_s: int = 30, sfn_at: Optional[Callable[[int], Optional[int]]] = None,
+                 repeat_interval_s: Optional[float] = None, broadcast_area: Optional[str] = None, leap_seconds: int = 18):
         if validity_s <= 0:
             raise ValueError("validity_s must be positive")
         self._network, self._monitor, self._push, self._validity_ns = network, monitor, push, int(validity_s * 1e9)
         self._backdate_ns = int(backdate_s * 1e9)
+        self._envelope = {"repeat_interval_s": repeat_interval_s, "broadcast_area": broadcast_area, "leap_seconds": leap_seconds}   # how the file's envelope (the deck's slide 14) is filled
         self._sfn_at = sfn_at   # the reference cell's SFN at a network time, if the broadcaster can say; the document then carries it with the RTDs
         self._last_version = 0
 
@@ -71,6 +73,9 @@ class Publisher:
             sfn = self._sfn_at(valid_at.pop())
         doc = AssistanceDocument(version, now_gps_ns - self._backdate_ns, now_gps_ns + self._validity_ns, self._network.reference.as_cell(), neighbours, sfn,
                                  self._monitor.reference_std_ns)
+        doc.created_gps_ns = now_gps_ns
+        for k, v in self._envelope.items():
+            setattr(doc, k, v)
         fill_expected_rstd(doc, self._network.service_centre_lla, self._network.service_radius_m)
         doc.validate()
         return doc
