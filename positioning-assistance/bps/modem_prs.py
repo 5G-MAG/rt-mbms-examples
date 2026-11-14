@@ -26,9 +26,13 @@ class ModemRefused(Exception):
 
 
 class ModemPrs:
-    def __init__(self, base_url: str, ratio_min: float = 9.0, sigma_ns: float = 15.0, timeout_s: float = 5.0, signal: str = "prs"):
+    def __init__(self, base_url: str, ratio_min: float = 9.0, sigma_ns: Optional[float] = None, timeout_s: float = 5.0, signal: str = "prs"):
         """`base_url` is the modem's REST root, e.g. http://10.80.0.2:3010/modem-api. `sigma_ns` is the error given to each RSTD: measured live with the rig (8.7, 11.2 and 7.1 ns
-        standard deviation and -5 to -9.5 ns mean error over 32 occasions, 25 PRB, one path), combined in quadrature. `signal` is what the modem takes the time of
+        standard deviation and -5 to -9.5 ns mean error over 32 occasions, 25 PRB, one path), combined in quadrature. Left out, it is 15 ns for PRS and 20 ns for the PSS and
+        SSS: with 15 ns the claimed horizontal error of position fixes from the PSS and SSS was 0.72 and 0.77 times the measured one in two live runs (rms 33.3 m against
+        25.9 m claimed over 43 fixes, 36.6 m against 26.3 m over 49), so it is raised by that factor (about 1.3); the time differences themselves carry a bias that depends on
+        where a neighbour's PSS and SSS fall against the serving cell's PBCH (+97, +35 and +6 ns for cells 2, 3 and 4 in the second run), which a single figure does not
+        describe, so this is a calibration of the claim on this rig, not a model of the error. `signal` is what the modem takes the time of
         arrival from: "prs" (the PRS of the assistance data) or "pss_sss" (the PSS and SSS of each cell's cell acquisition subframe, the proposal's alternative where
         those subframes are not SFN'ed, slide 13 Note 1); the value is sent with the assistance data."""
         if signal not in ("prs", "pss_sss"):
@@ -36,7 +40,7 @@ class ModemPrs:
         self.signal = signal
         self.base = base_url.rstrip("/")
         self.ratio_min = ratio_min
-        self.sigma_ns = sigma_ns
+        self.sigma_ns = sigma_ns if sigma_ns is not None else (15.0 if signal == "prs" else 20.0)
         self.timeout_s = timeout_s
         self._pushed: Optional[str] = None
         self._pushed_cells: Optional[str] = None   # what was pushed without the search windows: the part whose change makes the modem drop its results
