@@ -58,30 +58,36 @@ def prs_symbols(normal_cp: bool, n_s: int, four_pbch_ports: bool) -> list[int]:
     return [4, 5] if n_s % 2 == 0 else ([2, 4, 5] if four_pbch_ports else [1, 2, 4, 5])
 
 
-def sync_pbch_core_mask(n_s: int, n_rb_dl: int, normal_cp: bool = True, n_f: int = 0) -> np.ndarray:
-    """Resource elements of one slot that carry the PSS, SSS or the core set of the PBCH of an MBMS-dedicated cell (5G Broadcast), as a
-    boolean grid [subcarrier, symbol]. `n_s` is the slot number in the radio frame and `n_f` the radio frame number.
+def sync_pbch_core_mask(n_s: int, n_rb_dl: int, normal_cp: bool = True, n_f: int = 0, mbms_dedicated: bool = True) -> np.ndarray:
+    """Resource elements of one slot that carry the PSS, SSS or the core set of the PBCH, as a boolean grid [subcarrier, symbol]. `n_s` is the slot number
+    in the radio frame and `n_f` the radio frame number.
 
-    PSS: n = 0..61, k = n - 31 + N_RB^DL N_sc^RB / 2, in slot 0 of the frames with n_f mod 4 = 0 only (clause 6.11.1.2); there is none in
-    slot 10. SSS: the same k, in OFDM symbol N_symb^DL - 2 of the slots where the PSS is transmitted (clause 6.11.2.2). PBCH core set:
-    k = N_RB^DL N_sc^RB / 2 - 36 + k', k' = 0..71, l = 0..3 in slot 1, in the frames with n_f mod 4 = 0 (clause 6.6.4). The reserved
-    resource elements next to the PSS and SSS (n = -5..-1 and 62..66) are not included: they carry no signal. PBCH repetition and CAS
-    muting (clause 6.6.4) are not modelled.
+    MBMS-dedicated cell (5G Broadcast, the default): PSS: n = 0..61, k = n - 31 + N_RB^DL N_sc^RB / 2, in slot 0 of the frames with n_f mod 4 = 0 only
+    (clause 6.11.1.2); there is none in slot 10. SSS: the same k, in OFDM symbol N_symb^DL - 2 of the slots where the PSS is transmitted (clause 6.11.2.2).
+    PBCH core set: k = N_RB^DL N_sc^RB / 2 - 36 + k', k' = 0..71, l = 0..3 in slot 1, in the frames with n_f mod 4 = 0 (clause 6.6.4).
+    Other FDD cell (`mbms_dedicated` False): PSS in the last and SSS in the second to last OFDM symbol of slots 0 and 10, the PBCH core set in slot 1, in every
+    frame (clauses 6.11.1.2, 6.11.2.2, 6.6.4).
+    The reserved resource elements next to the PSS and SSS (n = -5..-1 and 62..66) are not included: they carry no signal. PBCH repetition and CAS muting
+    (clause 6.6.4) are not modelled.
     """
     n_sym = 7 if normal_cp else 6
     mask = np.zeros((12 * n_rb_dl, n_sym), dtype=bool)
     centre = 6 * n_rb_dl
-    if n_f % 4 == 0:
-        if n_s == 0:
+    if mbms_dedicated:
+        sync_slots, pbch_slot, present = (0,), 1, n_f % 4 == 0
+    else:
+        sync_slots, pbch_slot, present = (0, 10), 1, True
+    if present:
+        if n_s in sync_slots:
             mask[centre - 31: centre + 31, n_sym - 1] = True   # PSS
             mask[centre - 31: centre + 31, n_sym - 2] = True   # SSS
-        if n_s == 1:
+        if n_s == pbch_slot:
             mask[centre - 36: centre + 36, 0:4] = True         # PBCH core set
     return mask
 
 
 def prs_slot_grid(n_id_prs: int, n_s: int, n_rb_dl: int, n_rb_prs: int | None = None, normal_cp: bool = True,
-                  four_pbch_ports: bool = False, n_rb_max_dl: int = 110, n_f: int = 0) -> np.ndarray:
+                  four_pbch_ports: bool = False, n_rb_max_dl: int = 110, n_f: int = 0, mbms_dedicated: bool = True) -> np.ndarray:
     """Clause 6.10.4.2 without frequency hopping: a[k, l] = r_{l, n_s}(m') for the PRS resource elements, zero elsewhere.
 
     k = 6 (m + N_RB^DL - N_RB^PRS) + ((6 - l + v_shift) mod 6) for normal CP, with 5 in place of 6 in the shift for extended CP;
@@ -101,22 +107,28 @@ def prs_slot_grid(n_id_prs: int, n_s: int, n_rb_dl: int, n_rb_prs: int | None = 
         r = prs_sequence(n_id_prs, n_s, l, normal_cp, n_rb_max_dl)
         k = 6 * (m + n_rb_dl - n_rb_prs) + ((base - l + v_shift) % 6)
         grid[k, l] = r[m + n_rb_max_dl - n_rb_prs]
-    grid[sync_pbch_core_mask(n_s, n_rb_dl, normal_cp, n_f)] = 0   # clause 6.10.4: PRS is not mapped onto those resource elements
+    grid[sync_pbch_core_mask(n_s, n_rb_dl, normal_cp, n_f, mbms_dedicated)] = 0   # clause 6.10.4: PRS is not mapped onto those resource elements
     return grid
 
 
-def _cp_lengths(n_fft: int) -> tuple[int, int]:
-    """Normal cyclic prefix in samples: 160 for the first symbol of a slot and 144 for the others at 2048-point FFT, scaled."""
-    return 160 * n_fft // 2048, 144 * n_fft // 2048
+def _cp_lengths(n_fft: int, normal_cp: bool = True) -> tuple[int, int]:
+    """Cyclic prefix in samples. Normal CP: 160 for the first symbol of a slot and 144 for the others at 2048-point FFT, scaled. Extended CP: 512 for every
+    symbol at 2048 points, scaled (TS 36.211 clause 5.2.1, as in every LTE implementation)."""
+    if normal_cp:
+        return 160 * n_fft // 2048, 144 * n_fft // 2048
+    return 512 * n_fft // 2048, 512 * n_fft // 2048
 
 
 def ofdm_subframe(grids: list[np.ndarray], n_rb_dl: int) -> np.ndarray:
-    """[design] Time-domain waveform of one subframe (two slots, normal CP) from the resource grids of its two slots. DC is not used."""
+    """[design] Time-domain waveform of one subframe (two slots) from the resource grids of its two slots, 7 symbols per slot for normal CP and 6 for extended CP
+    (taken from the grids' shape). DC is not used."""
     n_fft = _FFT_FOR_RB[n_rb_dl]
-    cp0, cp = _cp_lengths(n_fft)
+    n_sym = grids[0].shape[1]
+    normal_cp = n_sym == 7
+    cp0, cp = _cp_lengths(n_fft, normal_cp)
     out = []
     for grid in grids:
-        for l in range(7):
+        for l in range(n_sym):
             spec = np.zeros(n_fft, dtype=complex)
             k_rel = np.arange(12 * n_rb_dl) - 6 * n_rb_dl
             bins = np.where(k_rel < 0, n_fft + k_rel, k_rel + 1)
@@ -127,9 +139,9 @@ def ofdm_subframe(grids: list[np.ndarray], n_rb_dl: int) -> np.ndarray:
     return np.concatenate(out)
 
 
-def prs_subframe(n_id_prs: int, subframe: int, n_rb_dl: int, n_rb_prs: int | None = None, n_f: int = 0) -> np.ndarray:
+def prs_subframe(n_id_prs: int, subframe: int, n_rb_dl: int, n_rb_prs: int | None = None, n_f: int = 0, normal_cp: bool = True) -> np.ndarray:
     """Waveform of the PRS of one subframe of radio frame `n_f` (slots 2 * subframe and 2 * subframe + 1)."""
-    grids = [prs_slot_grid(n_id_prs, 2 * subframe + s, n_rb_dl, n_rb_prs, n_f=n_f) for s in (0, 1)]
+    grids = [prs_slot_grid(n_id_prs, 2 * subframe + s, n_rb_dl, n_rb_prs, normal_cp=normal_cp, n_f=n_f) for s in (0, 1)]
     return ofdm_subframe(grids, n_rb_dl)
 
 
@@ -177,6 +189,27 @@ class PrsCell:
     i_prs: int
     delay_s: float
     power_db: float = 0.0
+
+
+def prs_active(i_prs: int, n_prs: int, abs_subframe: int, muting: str | None = None) -> bool:
+    """True if PRS is transmitted in the subframe `abs_subframe` (10 n_f + subframe, taken modulo 10240).
+
+    The subframe is one of the N_PRS consecutive downlink subframes of an occasion whose first subframe satisfies (10 n_f + floor(n_s / 2) - Delta_PRS)
+    mod T_PRS = 0 (TS 36.211 clause 6.10.4.3), and the occasion is not muted. Muting (TS 37.355 prs-MutingInfo): a periodic sequence of T_REP bits, one per
+    PRS occasion, '0' muting it, the first bit for the first occasion after SFN = 0. PRS occasion groups longer than one occasion are not supported."""
+    period, delta = prs_period_offset(i_prs)
+    sf = abs_subframe % 10240
+    for j in range(n_prs):
+        start = (sf - j) % 10240
+        if (start - delta) % period:
+            continue
+        if muting is None:
+            return True
+        # occasions are counted from SFN 0 within each cycle of 10240 subframes, so when T_REP x T_PRS exceeds 10240 only the first 10240 / T_PRS bits are
+        # ever reached, which is the rule of TS 37.355 prs-MutingInfo for that case (T_PRS divides 10240 and T_REP is a power of two)
+        occasion = ((start - delta) % 10240) // period
+        return muting[occasion % len(muting)] == "1"
+    return False
 
 
 def occasion_subframe(i_prs: int) -> int:
@@ -229,4 +262,4 @@ def measure_rstd(cells: list[PrsCell], n_rb_dl: int, snr_db: float, rng: np.rand
 
 
 __all__ = ["gold_sequence", "prs_c_init", "prs_sequence", "prs_symbols", "prs_slot_grid", "ofdm_subframe", "prs_subframe",
-           "sample_rate_hz", "correlation_lag", "correlation_peak", "measure_rstd", "PrsCell", "occasion_subframe", "sync_pbch_core_mask"]
+           "sample_rate_hz", "correlation_lag", "correlation_peak", "measure_rstd", "PrsCell", "occasion_subframe", "prs_active", "sync_pbch_core_mask"]

@@ -5,10 +5,11 @@ from unittest import mock
 import numpy as np
 
 from bps import lab
-from bps.prs import (PrsCell, correlation_lag, gold_sequence, measure_rstd, occasion_subframe, ofdm_subframe, prs_c_init,
+from bps.prs import (prs_active, PrsCell, correlation_lag, gold_sequence, measure_rstd, occasion_subframe, ofdm_subframe, prs_c_init,
                      prs_sequence, prs_slot_grid, prs_subframe, sample_rate_hz, sync_pbch_core_mask)
 from bps.sim import quantise_rstd_ts, rstd_step_ts
 from bps.timebase import is_prs_occasion_start
+from bps.assistance import AssistanceDocument, Cell, Prs
 from bps.solver import solve_rstd
 from bps.timebase import C_MPS, TS_S
 
@@ -126,6 +127,23 @@ class Exclusion(unittest.TestCase):
             self.assertEqual(int(sync_pbch_core_mask(0, 25, n_f=n_f).sum()), 124, n_f)
             self.assertEqual(int(sync_pbch_core_mask(1, 25, n_f=n_f).sum()), 288, n_f)
 
+    def test_other_fdd_cells_have_sync_in_slots_0_and_10_and_pbch_in_every_frame(self):
+        for n_f in (0, 1, 2, 3, 4, 1023):
+            for n_s, expect in ((0, 124), (10, 124), (1, 288), (11, 0), (2, 0), (19, 0)):
+                self.assertEqual(int(sync_pbch_core_mask(n_s, 25, n_f=n_f, mbms_dedicated=False).sum()), expect, (n_f, n_s))
+        m = sync_pbch_core_mask(10, 25, mbms_dedicated=False)
+        self.assertEqual(sorted(set(np.nonzero(m)[1])), [5, 6])
+        self.assertTrue(np.array_equal(m, sync_pbch_core_mask(0, 25, mbms_dedicated=False)))
+
+    def test_the_grid_follows_the_cell_type(self):
+        for n_s in (0, 1, 10):
+            ded = prs_slot_grid(3, n_s, 25, n_f=1, mbms_dedicated=True)
+            oth = prs_slot_grid(3, n_s, 25, n_f=1, mbms_dedicated=False)
+            if n_s == 10:
+                self.assertTrue(np.array_equal(ded != 0, ded != 0) and np.count_nonzero(oth) < np.count_nonzero(ded))
+            else:
+                self.assertLess(np.count_nonzero(oth), np.count_nonzero(ded))     # frame 1 has no sync signals on a dedicated cell
+
     def test_mask_extended_cp(self):
         m = sync_pbch_core_mask(0, 25, normal_cp=False)
         self.assertEqual(m.shape, (300, 6))
@@ -205,6 +223,27 @@ class Waveform(unittest.TestCase):
                 k_rel = np.arange(12 * n_rb) - 6 * n_rb
                 bins = np.where(k_rel < 0, n_fft + k_rel, k_rel + 1)
                 np.testing.assert_allclose(spec[bins], grid[:, l], atol=1e-9)
+
+    def test_extended_cp_round_trip_and_length(self):
+        n_rb, n_fft, cp = 25, 512, 128                                       # extended CP: 512 samples at 2048 points, 128 at 512
+        grids = [prs_slot_grid(3, 2, n_rb, normal_cp=False), prs_slot_grid(3, 3, n_rb, normal_cp=False)]
+        wave = ofdm_subframe(grids, n_rb)
+        self.assertEqual(len(wave), 2 * 6 * (n_fft + cp))
+        self.assertEqual(len(wave), int(round(1e-3 * sample_rate_hz(n_rb))))   # still one subframe of 1 ms
+        pos = 0
+        for grid in grids:
+            for l in range(6):
+                sym = wave[pos + cp: pos + cp + n_fft]
+                np.testing.assert_allclose(wave[pos: pos + cp], sym[-cp:])      # the prefix is the tail of the symbol
+                pos += cp + n_fft
+                spec = np.fft.fft(sym) / math.sqrt(n_fft)
+                k_rel = np.arange(12 * n_rb) - 6 * n_rb
+                bins = np.where(k_rel < 0, n_fft + k_rel, k_rel + 1)
+                np.testing.assert_allclose(spec[bins], grid[:, l], atol=1e-9)
+
+    def test_prs_subframe_takes_the_cp_type(self):
+        self.assertEqual(len(prs_subframe(3, 1, 25, normal_cp=False)), 7680)
+        self.assertFalse(np.allclose(prs_subframe(3, 1, 25, normal_cp=False), prs_subframe(3, 1, 25, normal_cp=True)))
 
     def test_cyclic_prefix_is_a_copy_of_the_symbol_tail(self):
         w = prs_subframe(3, 1, 25)
@@ -357,6 +396,83 @@ class FromWaveformsToFix(unittest.TestCase):
         self.assertLess(rmse, 1.5 * sigma_rms, (rmse, sigma_rms))
         self.assertGreater(rmse, sigma_rms / 1.5, (rmse, sigma_rms))
         self.assertTrue(all(e < 3 * c for e, c in zip(errs, claimed)), list(zip(errs, claimed)))
+
+
+class PrsActive(unittest.TestCase):
+    def test_occasions_without_muting(self):
+        # index 2435: T_PRS 40, Delta_PRS 0
+        self.assertEqual([a for a in range(0, 130) if prs_active(2435, 1, a)], [0, 40, 80, 120])
+        self.assertEqual([a for a in range(0, 90) if prs_active(2435, 2, a)], [0, 1, 40, 41, 80, 81])
+        self.assertEqual([a for a in range(0, 90) if prs_active(2436, 1, a)], [1, 41, 81])        # Delta_PRS 1
+        self.assertEqual([a for a in range(0, 12) if prs_active(2400, 1, a)], [0, 5, 10])         # T_PRS 5, Delta_PRS 0
+
+    def test_the_subframe_number_wraps_at_10240(self):
+        self.assertTrue(prs_active(2435, 1, 10240))
+        self.assertTrue(prs_active(2435, 1, 10240 + 40))
+        self.assertFalse(prs_active(2435, 1, 10240 + 1))
+        self.assertTrue(prs_active(2435, 2, 10240 + 1))      # second subframe of the occasion at SFN 0
+
+    def test_the_occasion_that_follows_the_wrap_still_counts_its_second_subframe(self):
+        self.assertTrue(prs_active(2475, 2, 1))              # T_PRS 80, Delta 0, N_PRS 2: subframe 1 of the occasion at 0
+
+    def test_muting_sequence(self):
+        mute = "0110"                                         # T_REP 4: occasions 0 and 3 (mod 4) muted
+        got = [a for a in range(0, 400) if prs_active(2435, 1, a, mute)]
+        # occasion k = a / 40 is active when mute[k % 4] == '1', i.e. k % 4 is 1 or 2: k = 1, 2, 5, 6, 9 -> 40, 80, 200, 240, 360
+        self.assertEqual(got, [40, 80, 200, 240, 360])
+
+    def test_a_zero_bit_mutes_every_subframe_of_the_occasion(self):
+        self.assertFalse(prs_active(2435, 2, 0, "01"))
+        self.assertFalse(prs_active(2435, 2, 1, "01"))
+        self.assertTrue(prs_active(2435, 2, 40, "01"))
+        self.assertTrue(prs_active(2435, 2, 41, "01"))
+
+    def test_long_muting_sequence_is_cut_to_the_first_n_bits(self):
+        # index 1120: T_PRS 1280, Delta 0: 8 occasions per 10240 subframes. A 16-bit sequence times 1280 exceeds 10240, so only its first 8 bits count.
+        seq = "1" + "0" * 7 + "1" * 8
+        got = [a for a in range(0, 10240, 1280) if prs_active(1120, 1, a, seq)]
+        self.assertEqual(got, [0])                            # the trailing 1s are never used
+        self.assertTrue(prs_active(1120, 1, 10240, seq))      # and the sequence restarts at the wrap
+
+    def test_muting_with_a_subframe_offset(self):
+        # index 2437: T_PRS 40, Delta_PRS 2: occasions at 2, 42, 82, ...; "01" mutes the even ones (k = 0, 2, ...)
+        self.assertEqual([a for a in range(0, 130) if prs_active(2437, 1, a, "01")], [42, 122])
+        self.assertEqual([a for a in range(0, 130) if prs_active(2437, 2, a, "01")], [42, 43, 122, 123])
+
+    def test_short_sequence_with_a_long_period_is_not_cut(self):
+        self.assertEqual([a for a in range(0, 5120, 1280) if prs_active(1120, 1, a, "10")], [0, 2560])
+
+
+class AssistanceSchema(unittest.TestCase):
+    def doc(self, **prs):
+        ref = Cell(1, 46.0, 6.0, 400.0, Prs(25, 2435, 1, **prs))
+        return AssistanceDocument(1, 0, 10**9, ref, [])
+
+    def test_defaults_and_effective_id(self):
+        p = Prs(25, 2435, 1)
+        self.assertIsNone(p.prs_id)
+        self.assertEqual(p.effective_id(7), 7)                 # the cell identity unless configured
+        self.assertEqual(Prs(25, 2435, 1, prs_id=300).effective_id(7), 300)
+
+    def test_round_trip_with_the_new_fields(self):
+        d = self.doc(prs_id=300, muting="0110")
+        back = AssistanceDocument.from_json(d.to_json())
+        self.assertEqual((back.reference.prs.prs_id, back.reference.prs.muting), (300, "0110"))
+
+    def test_an_older_document_without_the_fields_still_loads(self):
+        import json
+        raw = json.loads(self.doc().to_json())
+        for k in ("prs_id", "muting"):
+            raw["reference"]["prs"].pop(k)
+        back = AssistanceDocument.from_json(json.dumps(raw))
+        self.assertIsNone(back.reference.prs.prs_id)
+        self.assertIsNone(back.reference.prs.muting)
+
+    def test_invalid_values_are_refused(self):
+        for prs in ({"prs_id": 4096}, {"prs_id": -1}, {"muting": "011"}, {"muting": "0x"}, {"muting": ""}, {"muting": "01" * 600}):
+            with self.assertRaises(ValueError, msg=str(prs)):
+                self.doc(**prs).validate()
+        self.doc(prs_id=4095, muting="01" * 512).validate()     # the largest allowed
 
 
 if __name__ == "__main__":

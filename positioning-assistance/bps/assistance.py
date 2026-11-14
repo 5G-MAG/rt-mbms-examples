@@ -37,11 +37,24 @@ class Rtd:
         return (self.std_ns**2 + (self.drift_std_ns_per_s * age_s) ** 2) ** 0.5
 
 
+# [spec] TS 37.355 V19.3.0 clause 6.5.1.2, prs-MutingInfo: the muting sequence has T_REP = 2, 4, 8, 16, 32, 64, 128, 256, 512 or 1024 bits.
+_MUTING_LENGTHS = tuple(2**i for i in range(1, 11))
+
+
 @dataclass
 class Prs:
+    """PRS information of a cell (slides 27 and 28 of the proposal; TS 37.355 PRS-Info).
+
+    `prs_id` is the PRS ID; the cell identity when absent (TS 36.211 clause 6.10.4.1, "unless configured by higher layers"). `muting` is the PRS muting
+    sequence as a string of '0' and '1': a '0' mutes the PRS occasion (TS 37.355 prs-MutingInfo); absent means no muting."""
     bandwidth_prb: int
     configuration_index: int
     num_dl_frames: int
+    prs_id: int | None = None
+    muting: str | None = None
+
+    def effective_id(self, phys_cell_id: int) -> int:
+        return phys_cell_id if self.prs_id is None else self.prs_id
 
 
 @dataclass
@@ -75,6 +88,10 @@ class AssistanceDocument:
             if c.prs.num_dl_frames not in _NUM_DL_FRAMES:
                 raise ValueError("numDL-Frames must be 1,2,4 or 6")
             prs_period_offset(c.prs.configuration_index)  # raises for reserved indices
+            if c.prs.prs_id is not None and not 0 <= c.prs.prs_id <= 4095:
+                raise ValueError("PRS ID must be 0..4095")
+            if c.prs.muting is not None and (len(c.prs.muting) not in _MUTING_LENGTHS or set(c.prs.muting) - {"0", "1"}):
+                raise ValueError("the PRS muting sequence must be 2, 4, 8, ... or 1024 characters of 0 and 1")
             if not (-90 <= c.latitude_deg <= 90 and -180 <= c.longitude_deg <= 180):
                 raise ValueError("latitude/longitude out of range")
         if self.reference.rtd is not None:

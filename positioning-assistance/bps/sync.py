@@ -100,9 +100,9 @@ def sync_slot_grid(cell_id: int, n_rb_dl: int, normal_cp: bool = True) -> np.nda
     return grid
 
 
-def cas_subframe(cell_id: int, n_rb_dl: int) -> np.ndarray:
+def cas_subframe(cell_id: int, n_rb_dl: int, normal_cp: bool = True) -> np.ndarray:
     """Waveform of the cell acquisition subframe as far as it is generated here: slot 0 with the PSS and SSS, slot 1 empty."""
-    slot0 = sync_slot_grid(cell_id, n_rb_dl)
+    slot0 = sync_slot_grid(cell_id, n_rb_dl, normal_cp)
     return ofdm_subframe([slot0, np.zeros_like(slot0)], n_rb_dl)
 
 

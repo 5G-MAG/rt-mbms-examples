@@ -135,6 +135,15 @@ class Waveform(unittest.TestCase):
         self.assertGreater(np.sum(np.abs(w[:3840]) ** 2), 0)
         np.testing.assert_allclose(w[3840:], 0.0)
 
+    def test_extended_cp_energy_is_in_symbols_4_and_5(self):
+        # extended CP: 6 symbols per slot of 512 + 128 samples; the SSS is in symbol N_symb - 2 = 4 and the PSS in symbol 5
+        w = cas_subframe(5, 25, normal_cp=False)
+        self.assertEqual(len(w), 7680)
+        for l in range(6):
+            useful = w[l * 640 + 128: l * 640 + 640]
+            self.assertAlmostEqual(float(np.sum(np.abs(useful) ** 2)), 62.0 if l in (4, 5) else 0.0, places=9, msg=f"symbol {l}")
+        np.testing.assert_allclose(w[3840:], 0.0)
+
     def test_energy_is_in_the_pss_and_sss_symbols_only(self):
         # 25 PRB: 512-point FFT, cyclic prefix 40 samples for the first symbol of a slot and 36 for the others (160 and 144 at 2048 points).
         # With 62 unit resource elements per symbol the energy of a symbol's useful part is 62 (Parseval with the sqrt(N) scaling).
