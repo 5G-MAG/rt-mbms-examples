@@ -7,6 +7,7 @@ network time the UE derived, so a wrong network time or a missing drift shows up
 """
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 
@@ -17,6 +18,8 @@ from .assistance import Prs
 from .publisher import CellSite, Network
 from .rtd_monitor import Epoch, geo_distance_m
 from .timebase import C_MPS, TS_S
+from .prs import PrsCell, measure_rstd
+from .sim import quantise_rstd_ts, rstd_step_ts
 from .ue import Measurement
 
 ORIGIN = (46.2044, 6.1432, 400.0)
@@ -25,6 +28,7 @@ MONITOR_ENU = (1000.0, 500.0, 10.0)
 # RTD of cells 2..4 at EPOCH_ns (ns) and its drift (ns per second)
 TRUE_RTD = {2: (123_456.0, 3.0), 3: (-80_000.0, -2.0), 4: (40_000.0, 1.5)}
 UE_ENU = np.array([2500.0, -3200.0, 1.5])
+PRS_INDEX = 2435
 UNIX_TO_GPS_NS = 315_964_800 * 10**9  # GPS epoch in Unix time; leap seconds are applied by the caller when they matter
 
 
@@ -32,7 +36,10 @@ def network() -> Network:
     sites = []
     for i, p in enumerate(CELLS_ENU):
         lat, lon, h = geo.enu_to_lla(ORIGIN, p)
-        sites.append(CellSite(i + 1, lat, lon, h, Prs(25, 2400 + i, 1)))
+        # Index 2435 is T_PRS 40, Delta_PRS 0: PRS in subframe 0 of the frames with n_f mod 4 = 0, which on this carrier (MBMS-dedicated,
+        # MBSFN subframes at 1.25 kHz) are the only 15 kHz subframes, the cell acquisition subframes. PRS is defined for 15 kHz only
+        # (SPEC-CLAIMS.md C28). All cells share it and are told apart by N_ID^PRS. That PRS is allowed there is not established.
+        sites.append(CellSite(i + 1, lat, lon, h, Prs(25, PRS_INDEX, 1)))
     return Network(sites[0], tuple(sites[1:]))
 
 
@@ -70,6 +77,26 @@ class World:
             wrapped = (self.true_rtd_ns(cid, t_net_ns) + 500_000) % 1_000_000 - 500_000
             rstd[cid] = (d[cid - 1] - d[0]) / C_MPS + wrapped * 1e-9 + self._rng.normal(0, noise_ns) * 1e-9
         return Measurement(sample_clock_ns, rstd, sigma_s=noise_ns * 1e-9)
+
+
+    def measurement_from_prs(self, t_net_ns: int, sample_clock_ns: int, rng: np.random.Generator, snr_db: float = 0.0,
+                             estimator_sigma_ns: float = 5.0, nrb: int = 25) -> Measurement:
+        """As `measurement`, but each RSTD is estimated from simulated PRS waveforms (bps.prs) and reported with the resolution of
+        TS 36.133 V19.6.0 clause 9.1.10.3 (1 Ts up to 4096 Ts, 5 Ts above). N_ID^PRS is the cell identity (clause 6.10.4.1: unless
+        configured by higher layers). The weight of each RSTD is the estimator's error and the uniform error of its reporting step,
+        step / sqrt(12), added in quadrature. `estimator_sigma_ns` is the rms error measured on this estimator in simulation with the four cells
+        in one cell acquisition subframe: 2.4, 2.5 and 5.6 ns at 10, 0 and -10 dB per sample (25 PRB, one path, 90 estimates each); a
+        different channel needs a different value."""
+        d = np.linalg.norm(CELLS_ENU - UE_ENU, axis=1) / C_MPS
+        net = network()
+        cells = []
+        for site in (net.reference, *net.neighbours):
+            cid = site.phys_cell_id
+            rtd = 0.0 if cid == 1 else (self.true_rtd_ns(cid, t_net_ns) + 500_000) % 1_000_000 - 500_000
+            cells.append(PrsCell(cid, site.prs.configuration_index, d[cid - 1] - d[0] + rtd * 1e-9))
+        reported = {cid: quantise_rstd_ts(r) for cid, r in zip((2, 3, 4), measure_rstd(cells, nrb, snr_db, rng, n_f=0))}
+        sigma = {cid: math.hypot(estimator_sigma_ns * 1e-9, rstd_step_ts(r) * TS_S / math.sqrt(12)) for cid, r in reported.items()}
+        return Measurement(sample_clock_ns, reported, sigma_s=max(sigma.values()), sigma_by_cell=sigma)
 
 
 def host_gps_ns(leap_seconds: int = 18) -> int:

@@ -92,6 +92,28 @@ class Chain(unittest.TestCase):
         d_ref = np.linalg.norm(UE - CELLS_ENU[0])
         self.assertAlmostEqual((fix.time_gps_ns - t_net) / 1e9, d_ref / C_MPS, delta=2e-6)
 
+    def test_per_cell_sigma_down_weights_a_bad_rstd(self):
+        body = self.pub.publish_once(self.t_last)
+        clock, store = self.ue(body, self.t_last + 2 * 10**9, 5 * 10**9)
+        sample_clock = 45 * 10**9
+        t_net = clock.network_time_ns(sample_clock)
+        good = measure(TRUTH, UE, t_net, sample_clock, noise_ns=1.0)
+        bad = dict(good.rstd_s)
+        bad[2] += 2e-6   # 600 m of range difference on one cell
+        h = geo.enu_to_lla(ORIGIN_LLA, UE)[2]
+
+        def error(m):
+            fix = Positioner(clock, store, height_m=h).solve(m)
+            return float(np.linalg.norm(geo.lla_to_enu(ORIGIN_LLA, (fix.latitude_deg, fix.longitude_deg, 1.5))[:2] - UE[:2]))
+
+        same_weight = error(Measurement(sample_clock, bad, sigma_s=30e-9))
+        weighted = error(Measurement(sample_clock, bad, sigma_s=30e-9, sigma_by_cell={2: 1e-4}))
+        self.assertGreater(same_weight, 100.0)
+        self.assertLess(weighted, 25.0)
+        # a cell missing from the map keeps sigma_s
+        self.assertEqual(error(Measurement(sample_clock, good.rstd_s, sigma_s=30e-9, sigma_by_cell={})),
+                         error(Measurement(sample_clock, good.rstd_s, sigma_s=30e-9)))
+
     def test_claimed_uncertainty_is_calibrated(self):
         errs, sigs = [], []
         for seed in range(30):

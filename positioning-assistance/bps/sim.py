@@ -24,6 +24,11 @@ CELLS_ENU = np.array([[0.0, 0.0, 30.0], [9000.0, 2500.0, 45.0], [-4000.0, 8000.0
 PRS_INDEX = [2400, 2401, 2402, 2403]  # T_PRS = 5 subframes, staggered offsets (Table 6.10.4.3-1)
 
 
+def rstd_step_ts(rstd_s: float) -> int:
+    """[spec] TS 36.133 V19.6.0 clause 9.1.10.3: the reporting step in Ts, 1 for |RSTD| <= 4096 Ts and 5 above."""
+    return 1 if abs(rstd_s) / TS_S <= 4096 else 5
+
+
 def quantise_rstd_ts(rstd_s: float) -> float:
     """[spec] TS 36.133 V19.6.0 clause 9.1.10.3: reporting range -15391..15391 Ts, 1 Ts resolution for |RSTD| <= 4096 Ts and
     5 Ts above. Returns the centre of the reported bin, in seconds. (Bin edge inclusivity is irrelevant at this precision.)

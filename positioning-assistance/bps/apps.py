@@ -49,6 +49,7 @@ def cmd_publish(a) -> None:
 
 def cmd_ue(a) -> None:
     world = lab.World(epoch_gps_ns=a.world_epoch_gps_ns, seed=2)
+    rng = np.random.default_rng(3)
     clock, store = NetworkClock(), AssistanceStore()
     positioner = Positioner(clock, store, height_m=lab.UE_ENU[2] + lab.ORIGIN[2])
     end = time.time() + a.seconds
@@ -70,7 +71,9 @@ def cmd_ue(a) -> None:
             sample_clock = rx["sample_clock_ns"]  # now, on the receiver's sample clock
             t_net = clock.network_time_ns(sample_clock)
             try:
-                fix = positioner.solve(world.measurement(t_net, sample_clock))
+                m = (world.measurement_from_prs(t_net, sample_clock, rng, snr_db=a.snr_db) if a.measure == "prs"
+                     else world.measurement(t_net, sample_clock))
+                fix = positioner.solve(m)
             except (StaleDocument, ValueError) as e:
                 print(f"{time.strftime('%H:%M:%S')} no fix: {e}", flush=True)
             else:
@@ -113,6 +116,9 @@ def main() -> None:
     g.add_argument("--doc-url")
     u.add_argument("--modem-url", default="http://10.80.0.2:3010/modem-api/sib_info")
     u.add_argument("--world-epoch-gps-ns", type=int, required=True, help="the publisher's world epoch, printed by `publish`")
+    u.add_argument("--measure", choices=("formula", "prs"), default="formula",
+                   help="where the RSTDs come from: computed from the geometry (default), or estimated from simulated PRS waveforms")
+    u.add_argument("--snr-db", type=float, default=0.0, help="with --measure prs: signal to noise ratio per sample of each cell")
     u.add_argument("--interval", type=float, default=2.0)
     u.add_argument("--seconds", type=float, default=60.0)
     u.add_argument("--leap-seconds", type=int, default=18)

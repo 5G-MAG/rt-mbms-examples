@@ -456,7 +456,8 @@ FLUTE-delivered in its own MBMS session, while a single SFN'ed SIB16 gives the n
 
 What is live and what is synthetic: the document is found from the service announcement and travels over the air, and the network time comes from the modem's SIB16 anchor
 (`/modem-api/sib_info`: `sib16.anchor`, `rx_clock`). The demo radio has one eNB, so the document describes a virtual four-cell network and the
-RSTDs the UE would measure are computed from a known position and the true RTDs. The code is `positioning-assistance/` at the root of this
+RSTDs the UE would measure are computed from a known position and the true RTDs; with `POS_MEASURE=prs` they are instead estimated from simulated PRS waveforms
+(TS 36.211 sequence and mapping, a delayed noisy channel, a correlation ToA estimator), still not from the radio. The code is `positioning-assistance/` at the root of this
 repository (`BPS_DIR`).
 
 Requirements: the transmitter and modem builds with SIB16 time support (rt-mbms-tx and rt-mbms-modem `feature/sib16-time-reference`),

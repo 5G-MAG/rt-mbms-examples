@@ -92,6 +92,7 @@ class Measurement:
     sample_clock_ns: int
     rstd_s: dict[int, float]   # cell id -> RSTD in seconds (TS 36.214 clause 5.1.12)
     sigma_s: float             # 1-sigma of one RSTD (reporting resolution and noise)
+    sigma_by_cell: Optional[dict[int, float]] = None   # cell id -> 1-sigma of that cell's RSTD; overrides sigma_s where present
 
 
 @dataclass
@@ -127,7 +128,8 @@ class Positioner:
                 raise ValueError(f"no RSTD measured for cell {c.phys_cell_id}")
             rstd[i] = m.rstd_s[c.phys_cell_id]
             rtd[i] = _wrap_ns(c.rtd.at(t_net)) * 1e-9  # evaluated at the network time of the measurement, folded to +-0.5 ms
-            sigma[i] = float(np.hypot(m.sigma_s, c.rtd.std_at(t_net) * 1e-9))
+            own = (m.sigma_by_cell or {}).get(c.phys_cell_id, m.sigma_s)
+            sigma[i] = float(np.hypot(own, c.rtd.std_at(t_net) * 1e-9))
         fix_up = None if self._height is None else self._height - origin[2]
         sol = solve_rstd(enu, rstd, rtd, sigma, ref=0, fix_up_m=fix_up)
         if not sol.converged:

@@ -241,6 +241,8 @@ POS_INTERVAL="${POS_INTERVAL:-5}"            # seconds between documents
 POS_VALIDITY="${POS_VALIDITY:-90}"           # seconds a document stays usable
 # Where the UE reads the document: rt-mbms-client serves the files it receives under the session's Display Base URL.
 POS_DOC_URL="${POS_DOC_URL:-http://$RX_ADDR:$CLIENT_API_PORT/$POS_FILE_PATH}"
+POS_MEASURE="${POS_MEASURE:-formula}"        # formula: RSTDs from the geometry; prs: estimated from simulated PRS waveforms
+POS_SNR_DB="${POS_SNR_DB:-0}"                # with POS_MEASURE=prs: SNR per sample of each simulated cell
 LEAP_SECONDS="${LEAP_SECONDS:-18}"           # GPS - UTC, as in sib.conf.mbsfn
 
 set +a
