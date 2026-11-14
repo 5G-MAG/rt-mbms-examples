@@ -85,6 +85,7 @@ class EmulatedCell:
     cell_id: int
     prs_id: Optional[int] = None     # the cell identity when absent
     normal_cp: Optional[bool] = None  # this cell's cyclic prefix; the real cell's when absent
+    cfo_hz: float = 0.0               # this cell's carrier frequency offset against the real cell's, as a receiver locked to the real cell sees it (separate oscillators)
 
 
 class Mixer:
@@ -163,6 +164,8 @@ class Mixer:
                 start = a + self.delay_s(c.cell_id, t) * FS
                 i0 = int(math.floor(start))
                 w = frac_delay(self._waves[c.cell_id] * (self.scale * 10 ** (self.power_db / 20.0)), start - i0)
+                if c.cfo_hz:
+                    w = w * np.exp(2j * np.pi * c.cfo_hz * np.arange(len(w)) / FS)   # the phase starts at the cell's subframe, as its oscillator's does
                 self._pending.append((i0, w))
                 self.injected += 1
             self._next_occasion += 1

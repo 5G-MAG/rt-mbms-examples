@@ -239,6 +239,47 @@ class PerCellCpMixerTests(unittest.TestCase):
         np.testing.assert_allclose(m3._waves[3], upsample2(prs_subframe(3, 0, 25, n_f=0, normal_cp=True)))
 
 
+class CfoMixerTests(unittest.TestCase):
+    """An emulated cell with its own oscillator: its subframe is rotated by the offset, the others are not."""
+
+    def injected(self, cells):
+        m = Mixer(cells, lambda cid, t: 0.0, lambda: 10**18, power_db=0.0)
+        x = real_stream(4, 85.3, scale=0.05, noise=0.0)
+        out = run(m, x)
+        return m, out.astype(complex) - x[: len(out)].astype(complex)
+
+    def test_the_offset_rotates_the_injected_subframe(self):
+        _, base = self.injected([EmulatedCell(2)])
+        _, rot = self.injected([EmulatedCell(2, cfo_hz=1000.0)])
+        n = np.arange(len(base))
+        sel = np.abs(base) > 0.2 * np.abs(base).max()
+        ratio = rot[sel] * np.conj(base[sel])
+        # the rotation is the offset from the start of the subframe: the phase slope of rot / base over the subframe is 2 pi f / FS per sample
+        idx = np.nonzero(sel)[0]
+        first = idx[0]
+        slope = np.polyfit(idx - first, np.unwrap(np.angle(ratio)), 1)[0]
+        self.assertAlmostEqual(slope, 2 * np.pi * 1000.0 / FS, delta=1e-5)
+        self.assertAlmostEqual(float(np.sum(np.abs(rot) ** 2)), float(np.sum(np.abs(base) ** 2)), delta=1e-6 * float(np.sum(np.abs(base) ** 2)))   # the energy is the same
+
+    def test_other_cells_are_not_rotated(self):
+        _, a = self.injected([EmulatedCell(2), EmulatedCell(3)])
+        _, b = self.injected([EmulatedCell(2), EmulatedCell(3, cfo_hz=500.0)])
+        _, only2 = self.injected([EmulatedCell(2)])
+        _, only3 = self.injected([EmulatedCell(3)])
+        _, only3_rot = self.injected([EmulatedCell(3, cfo_hz=500.0)])
+        np.testing.assert_allclose(a, only2 + only3, atol=1e-6)               # the cells add: the sum is the parts (float32 stream)
+        np.testing.assert_allclose(b, only2 + only3_rot, atol=1e-6)           # and only cell 3 is rotated
+        self.assertGreater(float(np.max(np.abs(b - a))), 0.01)
+
+    def test_the_command_line_form(self):
+        from bps.apps import _cell_cfo
+        self.assertEqual(_cell_cfo(["3=150", "4=-80.5"]), {3: 150.0, 4: -80.5})
+        self.assertEqual(_cell_cfo(None), {})
+        for bad in ("3", "x=1", "3=fast"):
+            with self.assertRaises(SystemExit):
+                _cell_cfo([bad])
+
+
 class NormalCpMixerTests(MixerTests):
     """The same, for a real cell with the normal cyclic prefix: the cyclic prefix is a parameter (TS 36.211 clause 6.1)."""
     NORMAL_CP = True

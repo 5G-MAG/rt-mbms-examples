@@ -32,6 +32,18 @@ def _cell_cp(items) -> dict:
     return out
 
 
+def _cell_cfo(items) -> dict:
+    """`--cell-cfo 3=150` (repeatable) as {3: 150.0}, in Hz."""
+    out = {}
+    for it in items or []:
+        cid, _, hz = it.partition("=")
+        try:
+            out[int(cid)] = float(hz)
+        except ValueError:
+            raise SystemExit(f"--cell-cfo wants CELL=HZ, e.g. 3=150, not {it!r}")
+    return out
+
+
 def _ecgi(text):
     """`--ref-ecgi 901-56-0x19B01` (mcc-mnc-cell identity) as ("901", "56", 0x19B01)."""
     if not text:
@@ -176,7 +188,8 @@ def cmd_rig(a) -> None:
         return world.emulated_delay_s(cell_id, world.epoch_gps_ns if a.freeze else t_ns)
 
     cell_cp = _cell_cp(a.cell_cp)
-    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs)
+    cell_cfo = _cell_cfo(a.cell_cfo)
+    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs)
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.SUBSCRIBE, b"")
@@ -277,6 +290,7 @@ def main() -> None:
     r.add_argument("--snr-db", type=float, default=None, help="add white noise to the stream: Es/N0 per resource element (a PSS or SSS element of the real cell is the reference) at the modem")
     r.add_argument("--snr-file", help="a file holding the Es/N0 in dB (or `off`), read once a second and followed while running; overrides --snr-db")
     r.add_argument("--no-real-prs", action="store_true", help="the real cell sends no PRS (the lock reference then holds its PSS and SSS only)")
+    r.add_argument("--cell-cfo", action="append", metavar="CELL=HZ", help="an emulated cell's carrier frequency offset against the real cell's (separate oscillators), in Hz (repeatable)")
     r.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended", help="an emulated cell whose cyclic prefix differs from the real cell's (repeatable)")
     r.add_argument("--freeze", action="store_true", help="evaluate the delays at the world epoch, so they do not drift (for checks against exact values)")
     r.add_argument("--leap-seconds", type=int, default=18)
