@@ -182,21 +182,28 @@ def decode_quality(d: dict) -> float:
     return float(_int(d, "quality", 0, 127) * _RTD_RESOLUTION_NS[_choice(d, "resolution", _RTD_RESOLUTION_NS)])
 
 
-def encode_rtd(rtd: "Rtd") -> dict:
+def encode_rtd(rtd: "Rtd", with_drift: bool = True) -> dict:
     """rtdInfo (OMA-LPPe-OTDOA-CellData): fineRTD in units of 10 ns, taken as the offset of the neighbour's next subframe start after the reference's (0 to under 1 ms),
     fineRTDstd as an RTDquality, fineRTDdriftRate in ns/s, subframeOffset when known (optional, "if available"). The error of the coding (10 ns steps, 1 ns/s steps)
-    is added to the standard deviations."""
+    is added to the standard deviations. Without the drift rate (`with_drift` False: the clause makes systemFrameNumber mandatory where the drift rate is present, so a
+    document that cannot state the SFN does not state the drift) the drift is not lost: it becomes uncertainty, which grows with the age of the document."""
     fine = round((rtd.rtd_ns % 1_000_000) / _FINE_RTD_STEP_NS) % 100_000
     drift = round(rtd.drift_ns_per_s)
-    if not -100 <= drift <= 100:
+    if with_drift and not -100 <= drift <= 100:
         raise ValueError(f"an RTD drift rate of {rtd.drift_ns_per_s:.1f} ns/s does not fit fineRTDdriftRate (-100..100)")
     out = {}
     if rtd.subframe_offset is not None:
         if not 0 <= rtd.subframe_offset <= 10229:
             raise ValueError("subframeOffset must be 0..10229")
         out["subframeOffset"] = rtd.subframe_offset
-    out.update({"fineRTD": fine, "fineRTDstd": encode_quality(math.hypot(rtd.std_ns, _FINE_RTD_STEP_NS / math.sqrt(12))), "fineRTDdriftRate": drift,
-                "x_drift_std_ns_per_s": math.hypot(rtd.drift_std_ns_per_s, 1 / math.sqrt(12)), "x_valid_at_gps_ns": rtd.valid_at_gps_ns})
+    out["fineRTD"] = fine
+    out["fineRTDstd"] = encode_quality(math.hypot(rtd.std_ns, _FINE_RTD_STEP_NS / math.sqrt(12)))
+    if with_drift:
+        out["fineRTDdriftRate"] = drift
+        out["x_drift_std_ns_per_s"] = math.hypot(rtd.drift_std_ns_per_s, 1 / math.sqrt(12))
+    else:
+        out["x_drift_std_ns_per_s"] = math.hypot(rtd.drift_std_ns_per_s, rtd.drift_ns_per_s)
+    out["x_valid_at_gps_ns"] = rtd.valid_at_gps_ns
     return out
 
 
@@ -426,7 +433,7 @@ class AssistanceDocument:
                 info["slotNumberOffset"] = c.slot_number_offset
             info["expectedRSTD"], info["expectedRSTD-Uncertainty"] = encode_expected(c.expected_rstd_ns, c.expected_rstd_uncertainty_ns)
             return {"relative-Location": encode_relative(ref_lla, (c.latitude_deg, c.longitude_deg, c.height_m)),
-                    "otdoa-eNB-CellDataList": [{"otdoa-NeighbourCellInfoElement": info, "rtdInfo": encode_rtd(c.rtd)}]}
+                    "otdoa-eNB-CellDataList": [{"otdoa-NeighbourCellInfoElement": info, "rtdInfo": encode_rtd(c.rtd, with_drift=self.reference_sfn is not None)}]}
 
         return {"schema": SCHEMA, "version": self.version, "valid_from_gps_ns": self.valid_from_gps_ns, "valid_until_gps_ns": self.valid_until_gps_ns,
                 "reference": {"referenceCellInfo": ref_info, "positionCalculationInfoRef": calc}, "neighbours": [neighbour(c) for c in self.neighbours]}

@@ -74,7 +74,7 @@ class Chain(unittest.TestCase):
         self.net = make_network()
         self.mon, self.t_last = monitoring(self.net, TRUTH)
         self.sent = []
-        self.pub = Publisher(self.net, self.mon, self.sent.append, validity_s=90)
+        self.pub = Publisher(self.net, self.mon, self.sent.append, validity_s=90, sfn_at=lambda t: 0)   # a source of the reference cell's SFN, as the demo has
 
     def ue(self, doc_bytes, anchor_label, anchor_clock):
         store = AssistanceStore()
@@ -291,6 +291,24 @@ class Chain(unittest.TestCase):
                 _http_fetch("file:///etc/hostname", 100)
         finally:
             srv.shutdown(); srv.server_close()
+
+    def test_without_the_sfn_the_drift_rate_is_not_stated_and_becomes_uncertainty(self):
+        # OMA-LPPe: systemFrameNumber is mandatory where fineRTDdriftRate is present, so a document without the SFN has no drift rate
+        with_sfn = self.pub.publish_once(self.t_last)
+        self.pub._sfn_at = None
+        without = self.pub.publish_once(self.t_last + 10**9)
+        a, b = load(with_sfn)[1], load(without)[1]
+        for na, nb in zip(a["neighbours"], b["neighbours"]):
+            ra, rb = na["otdoa-eNB-CellDataList"][0]["rtdInfo"], nb["otdoa-eNB-CellDataList"][0]["rtdInfo"]
+            self.assertIn("fineRTDdriftRate", ra)
+            self.assertNotIn("fineRTDdriftRate", rb)
+            self.assertGreaterEqual(rb["x_drift_std_ns_per_s"], abs(ra["fineRTDdriftRate"]) - 0.5)   # the drift (to the 1 ns/s of the coded one) is in the uncertainty now
+        da, db = AssistanceDocument.from_json(with_sfn.decode()), AssistanceDocument.from_json(without.decode())
+        for ca, cb in zip(da.neighbours, db.neighbours):
+            self.assertNotEqual(ca.rtd.drift_ns_per_s, 0.0)
+            self.assertEqual(cb.rtd.drift_ns_per_s, 0.0)
+            age = 80.0 * 10**9
+            self.assertGreater(cb.rtd.std_at(int(cb.rtd.valid_at_gps_ns + age)), 2 * ca.rtd.std_at(int(ca.rtd.valid_at_gps_ns + age)))   # a document 80 s old is far less certain
 
     def test_no_sfn_when_it_cannot_be_said(self):
         for fn in (None, lambda t: None):

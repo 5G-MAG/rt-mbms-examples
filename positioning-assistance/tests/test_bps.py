@@ -91,7 +91,9 @@ class LppeCoding(unittest.TestCase):
 
     def test_the_wire_nests_the_lppe_ies(self):
         import json
-        env, raw = load(CellCyclicPrefix().doc().to_json())
+        d = CellCyclicPrefix().doc()
+        d.reference_sfn = 5                      # with the SFN the drift rate may be stated; without it it is not (see the publisher test)
+        env, raw = load(d.to_json())
         self.assertEqual(raw["schema"], "bps-assistance/3-draft")
         ref = raw["reference"]
         self.assertEqual(set(ref), {"referenceCellInfo", "positionCalculationInfoRef"})         # OMA-LPPe-OTDOA-ReferenceCellInfo
