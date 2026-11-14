@@ -107,8 +107,9 @@ class AssistanceStore:
         for c in doc.neighbours:
             # The UE measures at the reference cell's PRS occasions with the grids folded to the closest subframe; a neighbour whose frames or slots are offset from the
             # reference's would have its PRS elsewhere, and the folding would be wrong. Refused rather than guessed.
-            if c.rtd.subframe_offset not in (None, 0):
-                return f"rejected: cell {c.phys_cell_id} has subframeOffset {c.rtd.subframe_offset}: a frame offset between cells is not supported"
+            if c.rtd.subframe_offset not in (None, 0) and c.rtd.subframe_offset % 40 != 0:
+                return (f"rejected: cell {c.phys_cell_id} has subframeOffset {c.rtd.subframe_offset}: only a multiple of 40 subframes is supported (PRS is only in the cell acquisition "
+                        "subframes of an MBMS-dedicated carrier, which recur every 4 frames, so any other offset puts this cell's one elsewhere than the reference cell's)")
             if c.slot_number_offset not in (None, 0):
                 return f"rejected: cell {c.phys_cell_id} has slotNumberOffset {c.slot_number_offset}: a slot offset between cells is not supported"
         if self._doc is not None and doc.version <= self._doc.version:

@@ -44,7 +44,7 @@ class ModemPrs:
         cells = []
         for c in (doc.reference, *doc.neighbours):
             cells.append({"cell_id": c.phys_cell_id, "cp_length": c.cp_length or doc.reference.cp_length,
-                          "expected_rstd_ns": c.expected_rstd_ns, "expected_rstd_uncertainty_ns": c.expected_rstd_uncertainty_ns,
+                          "subframe_offset": (c.rtd.subframe_offset or 0) if c.rtd is not None else 0, "expected_rstd_ns": c.expected_rstd_ns, "expected_rstd_uncertainty_ns": c.expected_rstd_uncertainty_ns,
                           "prs": {"bandwidth_prb": c.prs.bandwidth_prb, "configuration_index": c.prs.configuration_index,
                                   "num_dl_frames": c.prs.num_dl_frames, "prs_id": c.prs.prs_id, "muting": c.prs.muting}})
         return {"reference_cell_id": doc.reference.phys_cell_id, "cells": cells}

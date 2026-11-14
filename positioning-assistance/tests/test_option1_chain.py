@@ -12,6 +12,7 @@ from bps.publisher import CellSite, Network, Publisher
 from bps.rtd_monitor import Epoch, InsufficientData, RtdMonitor, geo_distance_m
 from bps.sim import CELLS_ENU, ORIGIN_LLA
 from bps.timebase import C_MPS, TS_S
+from bps.modem_prs import ModemPrs
 from bps.ue import AssistanceStore, Measurement, NetworkClock, Positioner, StaleDocument
 from bps.xmb import PortalClient, SessionSpec, XmbError, XmbUClient
 
@@ -179,6 +180,15 @@ class Chain(unittest.TestCase):
         bad_env, bad = load(raw)
         bad["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 3
         self.assertIn("subframeOffset 3", AssistanceStore().ingest(json.dumps(bad_env).encode()))
+        bad_env, bad = load(raw)
+        bad["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 20
+        self.assertIn("subframeOffset 20", AssistanceStore().ingest(json.dumps(bad_env).encode()))       # not a whole cell acquisition period
+        good_env, good = load(raw)
+        good["neighbours"][1]["otdoa-eNB-CellDataList"][0]["rtdInfo"]["subframeOffset"] = 80
+        store = AssistanceStore()
+        self.assertEqual(store.ingest(json.dumps(good_env).encode()), "accepted")                          # two cell acquisition periods: kept
+        j = ModemPrs.assistance_json(store.current(self.t_last))
+        self.assertEqual([c["subframe_offset"] for c in j["cells"]], [0, 0, 80, 0])                        # and pushed to the modem
         bad_env, bad = load(raw)
         bad["neighbours"][0]["otdoa-eNB-CellDataList"][0]["otdoa-NeighbourCellInfoElement"]["slotNumberOffset"] = 2
         self.assertIn("slotNumberOffset 2", AssistanceStore().ingest(json.dumps(bad_env).encode()))
