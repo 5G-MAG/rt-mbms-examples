@@ -7,7 +7,7 @@ Nothing pins a version for this prototype yet; Release 19 was chosen by the owne
 | Document | Version | Used for |
 |---|---|---|
 | TS 36.331 | V19.4.0 (2026-09) | SIB16 time, TimeReferenceInfo |
-| TS 36.211 | V19.3.0 (2026-03) | PRS occasions, sequence and mapping |
+| TS 36.211 | V19.3.0 (2026-03) | PRS occasions, sequence and mapping; PSS and SSS |
 | TS 36.214 | V19.0.0 (2025-09) | RSTD definition |
 | TS 36.133 | V19.6.0 (2026-09) | RSTD reporting resolution |
 | TS 37.355 | V19.3.0 (2026-06) | LTE OTDOA assistance data and capability (TS 36.355 V19.0.0 is the stub that points here) |
@@ -74,6 +74,19 @@ pages of TS 36.211 V19.3.0 (file pages 75 and 76 and page 101 of `36211-j30_s06-
 - TS 36.211 V19.3.0 clause 7.2: "Pseudo-random sequences are defined by a length-31 Gold sequence." The recurrences, Nc = 1600 and the initialisation are read from the rendered page. [C23] Code: `gold_sequence`, compared bit for bit with srsRAN's `srsran_sequence_LTE_pr` for four seeds in `tests/test_prs.py`.
 
 What is this project's own design, not specification: the OFDM synthesis (FFT size per bandwidth, normal cyclic prefix lengths scaled from 2048 points, DC unused), the channel (one path per cell, white noise), the correlation ToA estimator with a parabola on a 16-times upsampled peak, and the weight given to each RSTD.
+
+## PSS and SSS time of arrival (`bps/sync.py`)
+
+The alternative of slide 13, note 1, of the proposal: where the cell acquisition subframes are not SFN'ed, the time of arrival of each cell is taken from its PSS and SSS instead of from PRS. The sequences are equations; they were read from the
+rendered pages 185 to 188 of TS 36.211 V19.3.0 and checked against srsRAN (all 504 cell identities, both SSS variants) and Table 6.11.2.1-1 (all 168 groups). The sentences quoted here are the ones that survive the export.
+
+- TS 36.211 V19.3.0 clause 6.11: "There are 504 unique physical-layer cell identities." The identity is N_ID^(cell) = 3 N_ID^(1) + N_ID^(2) (equation on the rendered page). [C33] Code: `split_cell_id`.
+- TS 36.211 V19.3.0 clause 6.11.1.1: "used for the primary synchronization signal is generated from a frequency-domain Zadoff-Chu sequence" with the root indices of Table 6.11.1.1-1 (25, 29, 34 for N_ID^(2) = 0, 1, 2) and the two expressions of d(n) read from the rendered page. [C34] Code: `pss_sequence`.
+- TS 36.211 V19.3.0 clause 6.11.2.1: "is an interleaved concatenation of two length-31 binary sequences" and "The concatenated sequence is scrambled with a scrambling sequence given by the primary synchronization signal." The m-sequences, the shifts and the two subframe variants are read from the rendered page. [C35] Code: `sss_sequence`, `sss_indices`.
+- TS 36.211 V19.3.0 clauses 6.11.1.2 and 6.11.2.2, MBMS-dedicated cell: the PSS in the last OFDM symbol and the SSS in the one before it, in slot 0 of the frames with n_f mod 4 = 0, on k = n - 31 + N_RB^DL N_sc^RB / 2, n = 0..61 (C24, C25). [C36] Code: `sync_slot_grid`; its resource elements are the ones `bps.prs.sync_pbch_core_mask` keeps PRS clear of (tested).
+- TS 36.214 V19.0.0 clause 5.1.12 defines the RSTD through "the time when the UE receives the start of one subframe", without naming the signal it is taken from. The time difference of subframe starts derived from the PSS and SSS is the same quantity. TS 36.133 was **not read** for which signals a UE must or may use. [C37]
+
+What is this project's own design: the waveform (slot 0 only, no PBCH, no cell-specific reference signals), the channel (one path per cell, white noise, no frequency offset), the correlation estimator with interference cancellation (strongest cell first, subtract, repeat, two refinement passes), and the weights (`SYNC_TOA_SIGMA_NS`, from `python3 -m bps.compare sigma`). Not modelled: the cell-specific reference signals of the cell acquisition subframe, which would add bandwidth; a UE that uses them would do better.
 
 ## Not verified, and why
 

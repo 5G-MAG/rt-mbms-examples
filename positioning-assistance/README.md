@@ -29,6 +29,8 @@ FLUTE-delivered in a reserved MBMS session and refreshed every few seconds.
 | `bps/solver.py`, `bps/timebase.py`, `bps/geo.py` | Weighted least squares on the RSTDs; PRS occasions and SIB16 time decoding; coordinates |
 | `bps/lab.py`, `bps/apps.py` | A synthetic world for the demo and the two command lines the demo scripts use |
 | `bps/prs.py` | PRS sequence and mapping (TS 36.211 clauses 6.10.4.1, 6.10.4.2, 7.2), an OFDM waveform of one PRS subframe, and a correlation ToA estimator that gives RSTDs from simulated received waveforms. Not part of the radio |
+| `bps/sync.py` | The alternative of slide 13, note 1: PSS and SSS (TS 36.211 clause 6.11) in the cell acquisition subframe, and a time-difference estimator with interference cancellation over a simulated channel. Not part of the radio |
+| `bps/compare.py` | The experiments behind the numbers: the error table of `bps/sync.py` and the PRS against PSS/SSS comparison |
 | `bps/live.py`, `bps/sim.py` | A reader of the modem's SIB16 output; the software-only simulation |
 
 `SPEC-CLAIMS.md` lists every specification sentence the code relies on, with the document and version, and what is this project's own design.
@@ -41,12 +43,17 @@ Software only, no radio: `python3 -m unittest discover -s tests` and `python3 -m
 
 Over the demo stack: see "Positioning assistance" in `scripts/mbms-broadcast-demo/README.md` (`09-start-positioning.sh`, `10-run-positioning-ue.sh`).
 In that demo the document and the network time are live and the RSTDs are computed from a known position, on a ZMQ software radio with one eNB.
-With `POS_MEASURE=prs` (`--measure prs` on the UE) they are estimated from simulated PRS waveforms of the four virtual cells instead: still not from the radio.
+With `POS_MEASURE=prs` (`--measure prs` on the UE) they are estimated from simulated PRS waveforms of the four virtual cells instead: still not from the radio. `--measure sync` estimates them from the PSS and SSS of the cells' cell acquisition subframes instead.
 
-Verification: 68 unit tests (`python3 -m unittest discover -s tests`), and reset-rig runs of the demo. With RSTDs from the formula, the UE's fixes had
-rmse 9.0 to 10.0 m against 9.7 to 10.0 m claimed. With RSTDs from waveforms (two runs, 27 fixes each, same random seed so the same noise), rmse 10.2 and
-10.4 m against 11.9 m claimed, and one fix in each run at 2.05 claimed sigma. The waveform path uses the reporting step of TS 36.133 clause 9.1.10.3
-(1 Ts up to 4096 Ts, 5 Ts above) to weight each RSTD; with one weight for all, the cell above 4096 Ts gave a slow error of up to 18 m against 10 m claimed.
+Verification: 106 unit tests (`python3 -m unittest discover -s tests`, about 70 s), and reset-rig runs of the demo on the final code. With the time differences from the
+formula: 30 fixes, rmse 8.9 m against 10.0 m claimed. From PRS waveforms (three runs, 25 fixes each, same random seed so the same noise): rmse 10.3, 10.3 and 9.9 m against 11.9 m claimed, worst
+fix 2.02 claimed sigma. From the PSS and SSS (two runs, 13 fixes each, the estimate takes about 2 s): rmse 5.2 and 5.3 m against 7.0 m claimed, worst fix 1.26 claimed sigma. The PRS path uses the
+reporting step of TS 36.133 clause 9.1.10.3 (1 Ts up to 4096 Ts, 5 Ts above) to weight each RSTD; with one weight for all, the cell above 4096 Ts gave a slow error of up to 18 m against 10 m claimed.
+PSS and SSS as the source (`--measure sync`): the same chain, with the time differences estimated from the cells' PSS and SSS, which are on the carrier whatever the answer
+to the PRS question. Under equal conditions (UE-internal estimates, one path per cell, same noise, same solver, no reporting step) `python3 -m bps.compare fixes` gives fixes
+with PRS at 0.6 and 1.1 m rmse (12.5 and 2.5 dB per resource element) and with PSS/SSS at 1.4, 4.4 and 14.6 m (20, 10 and 0 dB per resource element): PRS is about 5 times
+more accurate, as its bandwidth is (4.5 against 0.93 MHz). The PSS/SSS estimator needed interference cancellation: without it the cells' own signals bias each other (69 to
+94 ns at any SNR, `results/sync-sigma-2026-11-14.txt`) and a cell 10 dB stronger than another captures it. With the TS 36.133 reporting step the PRS path is limited to about 10 m.
 Known limits: PRS generation and ToA measurement are missing from the radio; the waveform model has one path per cell, no frequency offset, and the PBCH, PSS and
 SSS exclusion is the pattern of an MBMS-dedicated cell without PBCH repetition or CAS muting; PRS is defined for 15 kHz spacing only and the MBSFN subframes of the demo carrier
 are 1.25 kHz, so the lab puts every cell's PRS in the cell acquisition subframes (index 2435), and that an MBMS-dedicated cell may send PRS is **not established**

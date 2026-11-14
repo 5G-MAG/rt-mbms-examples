@@ -140,10 +140,15 @@ def sample_rate_hz(n_rb_dl: int) -> float:
 
 
 def correlation_lag(rx: np.ndarray, ref: np.ndarray, upsample: int = 16) -> float:
+    """Position of the strongest match of `ref` inside `rx`, in samples with sub-sample resolution (see `correlation_peak`)."""
+    return correlation_peak(rx, ref, upsample)[0]
+
+
+def correlation_peak(rx: np.ndarray, ref: np.ndarray, upsample: int = 16) -> tuple[float, float]:
     """[design] Position, in samples and with sub-sample resolution, of the strongest match of `ref` inside `rx`.
 
     The correlation is done in the frequency domain and zero-padded there to `upsample` times the resolution; the peak is taken on that
-    grid and refined by a parabola. Lags run from 0 to len(rx) - len(ref)."""
+    grid and refined by a parabola. Lags run from 0 to len(rx) - len(ref). Returns (lag, correlation magnitude at the peak on that grid)."""
     n = 1 << int(math.ceil(math.log2(len(rx) + len(ref))))
     spec = np.fft.fft(rx, n) * np.conj(np.fft.fft(ref, n))
     padded = np.zeros(n * upsample, dtype=complex)
@@ -160,7 +165,7 @@ def correlation_lag(rx: np.ndarray, ref: np.ndarray, upsample: int = 16) -> floa
         denom = a - 2 * b + c
         if denom != 0:
             frac = 0.5 * (a - c) / denom
-    return (peak + frac) / upsample
+    return (peak + frac) / upsample, float(corr[peak])
 
 
 @dataclass(frozen=True)
@@ -224,4 +229,4 @@ def measure_rstd(cells: list[PrsCell], n_rb_dl: int, snr_db: float, rng: np.rand
 
 
 __all__ = ["gold_sequence", "prs_c_init", "prs_sequence", "prs_symbols", "prs_slot_grid", "ofdm_subframe", "prs_subframe",
-           "sample_rate_hz", "correlation_lag", "measure_rstd", "PrsCell", "occasion_subframe", "sync_pbch_core_mask"]
+           "sample_rate_hz", "correlation_lag", "correlation_peak", "measure_rstd", "PrsCell", "occasion_subframe", "sync_pbch_core_mask"]

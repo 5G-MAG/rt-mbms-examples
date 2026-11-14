@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -20,6 +21,7 @@ from .rtd_monitor import Epoch, geo_distance_m
 from .timebase import C_MPS, TS_S
 from .prs import PrsCell, measure_rstd
 from .sim import quantise_rstd_ts, rstd_step_ts
+from .sync import SyncCell, measure_rstd_sync, toa_sigma_ns
 from .ue import Measurement
 
 ORIGIN = (46.2044, 6.1432, 400.0)
@@ -97,6 +99,24 @@ class World:
         reported = {cid: quantise_rstd_ts(r) for cid, r in zip((2, 3, 4), measure_rstd(cells, nrb, snr_db, rng, n_f=0))}
         sigma = {cid: math.hypot(estimator_sigma_ns * 1e-9, rstd_step_ts(r) * TS_S / math.sqrt(12)) for cid, r in reported.items()}
         return Measurement(sample_clock_ns, reported, sigma_s=max(sigma.values()), sigma_by_cell=sigma)
+
+
+    def measurement_from_sync(self, t_net_ns: int, sample_clock_ns: int, rng: np.random.Generator, snr_db: float = 10.0,
+                              estimator_sigma_ns: Optional[float] = None, nrb: int = 25) -> Measurement:
+        """As `measurement_from_prs`, but the time differences come from the PSS and SSS of the cells' cell acquisition subframes (bps.sync): the
+        alternative the proposal names where those subframes are not SFN'ed. The cells keep their identities as physical-layer cell identities, so
+        cells 1 and 4 share N_ID^(2) and with it their PSS. Nothing is reported in the TS 36.133 sense, so there is no reporting step: the UE uses the
+        estimate as it is, weighted by the estimator's error (`bps.sync.toa_sigma_ns` for this SNR unless `estimator_sigma_ns` is given)."""
+        d = np.linalg.norm(CELLS_ENU - UE_ENU, axis=1) / C_MPS
+        net = network()
+        cells = []
+        for site in (net.reference, *net.neighbours):
+            cid = site.phys_cell_id
+            rtd = 0.0 if cid == 1 else (self.true_rtd_ns(cid, t_net_ns) + 500_000) % 1_000_000 - 500_000
+            cells.append(SyncCell(cid, d[cid - 1] - d[0] + rtd * 1e-9))
+        sigma_s = (toa_sigma_ns(snr_db) if estimator_sigma_ns is None else estimator_sigma_ns) * 1e-9
+        est = dict(zip((2, 3, 4), measure_rstd_sync(cells, nrb, snr_db, rng)))
+        return Measurement(sample_clock_ns, est, sigma_s=sigma_s, sigma_by_cell={cid: sigma_s for cid in est})
 
 
 def host_gps_ns(leap_seconds: int = 18) -> int:

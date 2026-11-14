@@ -1,0 +1,10 @@
+time difference from PSS and SSS, cancel=True, 14 draws of 3 cells per SNR, seed 77
+   30.0 dB per resource element: rms    1.7 ns
+   20.0 dB per resource element: rms    5.3 ns
+   10.0 dB per resource element: rms   16.8 ns
+    0.0 dB per resource element: rms   52.2 ns
+time difference from PSS and SSS, cancel=False, 14 draws of 3 cells per SNR, seed 77
+   30.0 dB per resource element: rms   68.8 ns
+   20.0 dB per resource element: rms   69.6 ns
+   10.0 dB per resource element: rms   73.5 ns
+    0.0 dB per resource element: rms   94.3 ns
