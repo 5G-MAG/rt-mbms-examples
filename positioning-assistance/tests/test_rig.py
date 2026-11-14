@@ -196,6 +196,33 @@ class MixerTests(unittest.TestCase):
             Mixer(self.CELLS, lambda c, t: 0.0, lambda: 0, n_rb=50)
 
 
+class NoiseTests(unittest.TestCase):
+    def test_the_noise_gives_the_stated_snr_per_resource_element_at_the_modem(self):
+        # a stream with nothing in it but the real cell; its noise-free copy is the difference
+        x = real_stream(5, 85.3, scale=0.05, noise=0.0)
+        for snr in (0.0, 10.0, 20.0):
+            m = Mixer([], lambda c, t: 0.0, lambda: 10**18, snr_db=snr, seed=4)
+            out = run(m, x)
+            noise = out.astype(complex) - x[: len(out)].astype(complex)
+            noise = noise[m._lock_len + 3 * BLOCK:]            # after the lock, which adds none
+            # the modem's step down to 7.68 Msps: a low-pass that keeps the lower half of the band, then every second sample (the variance of the kept samples is that of the
+            # filtered noise)
+            n = len(noise)
+            spec = np.fft.fft(noise)
+            spec[n // 4: n - n // 4] = 0.0
+            var_down = float(np.mean(np.abs(np.fft.ifft(spec)) ** 2))
+            es = m.scale ** 2
+            self.assertAlmostEqual(10 * math.log10(es / var_down), snr, delta=0.4, msg=f"{snr} dB")
+
+    def test_no_noise_before_the_lock_or_when_not_asked(self):
+        x = real_stream(3, 85.3)
+        quiet = run(Mixer([], lambda c, t: 0.0, lambda: 10**18), x)
+        np.testing.assert_array_equal(quiet, x[: len(quiet)])
+        m = Mixer([], lambda c, t: 0.0, lambda: 10**18, snr_db=5.0)
+        out = run(m, x)
+        np.testing.assert_array_equal(out[: m._lock_len], x[: m._lock_len])
+
+
 class PerCellCpMixerTests(unittest.TestCase):
     """An emulated cell may have a cyclic prefix of its own: its PRS is built with it, the real cell's with the real cell's."""
 

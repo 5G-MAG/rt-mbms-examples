@@ -93,7 +93,7 @@ class Mixer:
 
     def __init__(self, cells: list[EmulatedCell], delay_s: Callable[[int, int], float], now_gps_ns: Callable[[], int], real_cell_id: int = 1,
                  n_rb: int = 25, power_db: float = -6.0, lock_blocks: int = 2 * CAS_PERIOD // BLOCK + 2, real_cell_has_prs: bool = True,
-                 min_lock_ratio: float = 8.0, normal_cp: bool = False):
+                 min_lock_ratio: float = 8.0, normal_cp: bool = False, snr_db: Optional[float] = None, seed: int = 0):
         if n_rb != 25:
             raise ValueError("the mixer is written for the 25 PRB demo carrier (cell acquisition every 40 ms, 15.36 Msps stream)")
         self.cells = cells
@@ -117,6 +117,8 @@ class Mixer:
         self._lock_ref = self._sync_ref + (upsample2(prs_subframe(real_cell_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) if real_cell_has_prs else 0.0)
         self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0,
                                                     normal_cp=normal_cp if c.normal_cp is None else c.normal_cp)) for c in cells}
+        self.snr_db = snr_db         # white noise added to the whole stream once locked, for measuring what a receiver does at a given signal to noise ratio
+        self._rng = np.random.default_rng(seed)
         self.lock_quality = 0.0       # match of the latest lock attempt over the background
         self.best_lock_ratio = 0.0    # the strongest match of any attempt, including those refused for not repeating
         self.injected = 0
@@ -178,6 +180,11 @@ class Mixer:
             return block
         self._schedule()
         out = block.astype(complex)
+        if self.snr_db is not None:
+            # Es/N0 per resource element at the modem, which takes the stream down to 7.68 Msps: a resource element of unit power is `scale` in amplitude and the noise
+            # of variance v per sample at 15.36 Msps leaves v / 2 per sample, and per bin, after the filter that halves the rate.
+            v = 2.0 * self.scale ** 2 / 10 ** (self.snr_db / 10.0)
+            out += math.sqrt(v / 2.0) * (self._rng.standard_normal(n) + 1j * self._rng.standard_normal(n))
         keep = []
         for i0, w in self._pending:
             lo, hi = max(i0, self._n0), min(i0 + len(w), self._n0 + n)

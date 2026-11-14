@@ -55,7 +55,7 @@ rig_enb_conf() {
     if [[ -n "${POS_RIG_CP:-}" ]]; then
         [[ "$(rig_cp)" == extended ]] && cp=" --expert.extended_cp=true" || cp=" --expert.extended_cp=false"
     fi
-    echo "enb_baseline.conf --prs.enable=true --prs.config_index=$POS_RIG_PRS_INDEX --prs.nof_subframes=1$cp --rf.device_args=$args"
+    echo "enb_baseline.conf --prs.enable=${POS_RIG_PRS:-true} --prs.config_index=$POS_RIG_PRS_INDEX --prs.nof_subframes=1$cp --rf.device_args=$args"
 }
 
 wait_for_tcp() {
