@@ -13,6 +13,94 @@ from bps.timebase import (C_MPS, SUBFRAME_NS, TS_S, TimeAnchor, _PRS_TABLE, gps_
                           sib16_r15_time_to_ns)
 
 
+class LppeCoding(unittest.TestCase):
+    """The coding of the positions and of the RTD: OMA-TS-LPPe V2.0 (2020-08-04) rtdInfo and RelativeLocation, TS 23.032 V19.0.0 clauses 6.1 and 6.3."""
+
+    def test_point_by_the_equations_of_23_032(self):
+        from bps.assistance import encode_point, decode_point
+        p = encode_point(46.2, 6.14, 429.7)
+        self.assertEqual(p["degreesLatitude"], math.floor(46.2 * 2**23 / 90))      # N <= 2^23/90 X < N+1
+        self.assertEqual(p["degreesLongitude"], math.floor(6.14 * 2**24 / 360))     # N <= 2^24/360 X < N+1
+        self.assertEqual((p["latitudeSign"], p["altitudeDirection"], p["altitude"]), ("north", "height", 429))   # 1 m increments
+        s = encode_point(-33.9, -151.2, -12.4)
+        self.assertEqual((s["latitudeSign"], s["altitudeDirection"], s["altitude"]), ("south", "depth", 12))
+        self.assertLess(s["degreesLongitude"], 0)                                   # two's complement, west is negative
+        lat, lon, h = decode_point(s)
+        self.assertAlmostEqual(lat, -33.9, delta=90 / 2**23)
+        self.assertAlmostEqual(lon, -151.2, delta=360 / 2**24)
+        self.assertAlmostEqual(h, -12.5, delta=1.0)
+        for field, lim in (("degreesLatitude", 2**23 - 1), ("altitude", 2**15 - 1)):
+            self.assertLessEqual(encode_point(90.0, 180.0, 1e9)[field], lim)
+        with self.assertRaises(ValueError):
+            encode_point(91.0, 0.0, 0.0)
+
+    def test_relative_location_units_and_range(self):
+        from bps.assistance import encode_relative, decode_relative
+        ref = (46.0, 6.0, 400.0)
+        near = geo.enu_to_lla(ref, (1500.0, -2300.0, 0.0))
+        r = encode_relative(ref, (near[0], near[1], 412.34))
+        self.assertEqual(r["units"], "cm")                          # the smallest unit that holds the numbers
+        self.assertAlmostEqual(r["relativeNorth"] * 0.01, -2300.0, delta=0.02)
+        self.assertAlmostEqual(r["relativeEast"] * 0.01, 1500.0, delta=0.02)
+        self.assertEqual(r["relativeAltitude"]["geodeticRelativeAltitude"]["geodetic-height-depth"], 1234)
+        far = geo.enu_to_lla(ref, (9000.0, 19000.0, 0.0))           # 19 km north: past 524287 cm, so decimetres
+        r = encode_relative(ref, (far[0], far[1], 400.0))
+        self.assertEqual(r["units"], "dm")
+        lat, lon, h = decode_relative(ref, r)
+        self.assertLess(math.hypot(*geo.lla_to_enu((far[0], far[1], 400.0), (lat, lon, h))[:2]), 0.2)
+        with self.assertRaises(ValueError):                         # beyond the straight-line range the clause allows
+            encode_relative(ref, geo.enu_to_lla(ref, (0.0, 21000.0, 0.0)))
+        with self.assertRaises(ValueError):
+            encode_relative(ref, geo.enu_to_lla(ref, (11000.0, 0.0, 0.0)))
+        m = encode_relative(ref, (near[0], near[1], 400.0 + 4000.0))   # 4 km up: past 327 m in cm, 3.3 km in dm, so metres (no units field)
+        self.assertNotIn("units", m)
+
+    def test_rtd_info(self):
+        from bps.assistance import Rtd, encode_rtd, decode_rtd
+        r = encode_rtd(Rtd(-123_456.0, 5.0, 10**18, drift_ns_per_s=-2.4, drift_std_ns_per_s=0.2))
+        self.assertEqual(r["fineRTD"], 87654)                            # (-123456 mod 1 ms) in units of 10 ns: 876544 ns rounded to 87654
+        self.assertEqual(r["fineRTDdriftRate"], -2)
+        self.assertEqual(r["fineRTDstd"], {"resolution": "ns-5", "quality": 1})
+        back = decode_rtd(r)
+        self.assertAlmostEqual(back.rtd_ns, -123_460.0, delta=1e-6)       # folded back to the closest subframe
+        self.assertEqual(back.drift_ns_per_s, -2.0)
+        self.assertEqual(back.valid_at_gps_ns, 10**18)
+        self.assertNotIn("subframeOffset", r)                             # optional, not known here
+        self.assertEqual(encode_rtd(Rtd(0.0, 300.0, 0))["fineRTDstd"], {"resolution": "ns-5", "quality": 60})
+        self.assertEqual(encode_rtd(Rtd(0.0, 900.0, 0))["fineRTDstd"], {"resolution": "ns-10", "quality": 90})
+        self.assertEqual(encode_rtd(Rtd(0.0, 9000.0, 0))["fineRTDstd"], {"resolution": "ns-100", "quality": 90})
+
+    def test_rtd_edges_refused_or_wrapped(self):
+        from bps.assistance import Rtd, encode_rtd, decode_rtd
+        self.assertEqual(encode_rtd(Rtd(-4.0, 5.0, 0))["fineRTD"], 0)            # -4 ns rounds to the 0 step, not to 100000 (out of range)
+        self.assertEqual(encode_rtd(Rtd(-5.1, 5.0, 0))["fineRTD"], 99999)
+        self.assertEqual(decode_rtd(encode_rtd(Rtd(499_990.0, 5.0, 0))).rtd_ns, 499_990.0)
+        self.assertEqual(decode_rtd(encode_rtd(Rtd(-500_000.0, 5.0, 0))).rtd_ns, -500_000.0)
+        with self.assertRaises(ValueError):
+            encode_rtd(Rtd(0.0, 13000.0, 0))                               # beyond 127 x 100 ns
+        with self.assertRaises(ValueError):
+            encode_rtd(Rtd(0.0, 5.0, 0, drift_ns_per_s=101.0))
+        self.assertEqual(encode_rtd(Rtd(0.0, 5.0, 0, drift_ns_per_s=100.4))["fineRTDdriftRate"], 100)
+
+    def test_the_wire_has_the_lppe_names_and_not_the_old_blocks(self):
+        import json
+        raw = json.loads(CellCyclicPrefix().doc().to_json())
+        self.assertEqual(raw["schema"], "bps-assistance/1-draft")
+        self.assertEqual(set(raw["reference"]["location"]), {"latitudeSign", "degreesLatitude", "degreesLongitude", "altitudeDirection", "altitude"})
+        n = raw["neighbours"][0]
+        self.assertEqual(set(n["rtd_info"]) - {"x_drift_std_ns_per_s", "x_valid_at_gps_ns"}, {"fineRTD", "fineRTDstd", "fineRTDdriftRate"})
+        self.assertIn("relativeNorth", n["relative_location"])
+        for old in ("latitude_deg", "rtd_ns", "std_ns", "height_m"):
+            self.assertNotIn('"%s"' % old, json.dumps(raw))
+
+    def test_the_old_schema_is_refused(self):
+        import json
+        raw = json.loads(CellCyclicPrefix().doc().to_json())
+        raw["schema"] = "bps-assistance/0-draft"
+        with self.assertRaises(ValueError):
+            AssistanceDocument.from_json(json.dumps(raw))
+
+
 class CellCyclicPrefix(unittest.TestCase):
     """The cyclic prefix is a parameter of each cell (TS 37.355 cpLength of OTDOA assistance data, per cell), stated in the document or left to the serving cell's."""
 
@@ -145,10 +233,20 @@ class AssistanceDoc(unittest.TestCase):
         rng = np.random.default_rng(0)
         return build_document(np.array([0, 1000.0, -2000.0, 3000.0]), 0.0, np.zeros(4), 0.0, 5.0, 10**18, rng)
 
-    def test_round_trip(self):
+    def test_round_trip_is_the_coded_value(self):
+        # what a UE reads is the document as coded: positions within the coding's range, the RTD within its 10 ns step, the drift rounded to 1 ns/s
         d = self.doc()
         again = AssistanceDocument.from_json(d.to_json())
-        self.assertEqual(again, d)
+        for a, b in zip((again.reference, *again.neighbours), (d.reference, *d.neighbours)):
+            self.assertEqual((a.phys_cell_id, a.prs, a.cp_length), (b.phys_cell_id, b.prs, b.cp_length))
+            e, n, u = geo.lla_to_enu((b.latitude_deg, b.longitude_deg, b.height_m), (a.latitude_deg, a.longitude_deg, a.height_m))
+            self.assertLess(math.hypot(e, n), 1.0 if a is not again.reference else 3.0, a.phys_cell_id)   # TS 23.032 clause 6.1: under 3 m for the point
+            self.assertLess(abs(a.height_m - b.height_m), 1.0)
+        for a, b in zip(again.neighbours, d.neighbours):
+            self.assertLessEqual(abs((a.rtd.rtd_ns - b.rtd.rtd_ns + 500_000) % 1_000_000 - 500_000), 5.0 + 1e-6)
+            self.assertLessEqual(abs(a.rtd.drift_ns_per_s - b.rtd.drift_ns_per_s), 0.5 + 1e-9)
+            self.assertGreaterEqual(a.rtd.std_ns, b.rtd.std_ns)             # the coding error is added, never taken off
+        self.assertEqual((again.version, again.valid_from_gps_ns, again.valid_until_gps_ns), (d.version, d.valid_from_gps_ns, d.valid_until_gps_ns))
 
     def test_rejections(self):
         d = self.doc()

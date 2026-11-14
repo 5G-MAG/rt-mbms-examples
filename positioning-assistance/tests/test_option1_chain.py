@@ -133,8 +133,8 @@ class Chain(unittest.TestCase):
         body = self.pub.publish_once(self.t_last)
         doc = json.loads(body)
         for c in doc["neighbours"]:
-            c["rtd"]["drift_ns_per_s"] = 0.0
-            c["rtd"]["drift_std_ns_per_s"] = 0.0
+            c["rtd_info"]["fineRTDdriftRate"] = 0
+            c["rtd_info"]["x_drift_std_ns_per_s"] = 0.0
         zeroed = json.dumps(doc).encode()
         errs = []
         for raw in (body, zeroed):
