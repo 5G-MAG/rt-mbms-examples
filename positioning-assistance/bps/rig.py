@@ -2,7 +2,8 @@
 
 The rt-mbms demo has one eNB. Positioning needs several cells, each arriving at its own time. This mixer sits between the transmitter and the modem on the ZMQ
 stream: the transmitter is the reference cell, and the other cells are emulated PRS-only subframes added at the cell acquisition subframes, each delayed by its
-propagation delay and relative transmit delay (RTD) with sub-sample resolution.
+propagation delay and relative transmit delay (RTD) with sub-sample resolution. The cyclic prefix is a parameter (`normal_cp`): the cell acquisition subframe and the PRS
+are built with the real cell's.
 
 Steps: lock onto the real cell acquisition subframes by correlating with the PSS and SSS of the real cell (they are on the air, so this needs no cooperation
 from the transmitter), measure the scale of the stream from that match, then at every cell acquisition subframe add each emulated cell's PRS subframe
@@ -91,7 +92,7 @@ class Mixer:
 
     def __init__(self, cells: list[EmulatedCell], delay_s: Callable[[int, int], float], now_gps_ns: Callable[[], int], real_cell_id: int = 1,
                  n_rb: int = 25, power_db: float = -6.0, lock_blocks: int = 2 * CAS_PERIOD // BLOCK + 2, real_cell_has_prs: bool = True,
-                 min_lock_ratio: float = 8.0):
+                 min_lock_ratio: float = 8.0, normal_cp: bool = False):
         if n_rb != 25:
             raise ValueError("the mixer is written for the 25 PRB demo carrier (cell acquisition every 40 ms, 15.36 Msps stream)")
         self.cells = cells
@@ -108,11 +109,12 @@ class Mixer:
         self._next_occasion = 0
         self._pending: list[tuple[int, np.ndarray]] = []   # (absolute start, samples)
         self.min_lock_ratio = min_lock_ratio
-        self._sync_ref = upsample2(cas_subframe(real_cell_id, n_rb, normal_cp=False))
+        self.normal_cp = normal_cp   # the real cell's cyclic prefix: the cell acquisition subframe and the PRS are built with it (TS 36.211 clause 6.1: the same as subframe #0)
+        self._sync_ref = upsample2(cas_subframe(real_cell_id, n_rb, normal_cp=normal_cp))
         # What the real cell sends in its cell acquisition subframe that is known here: the PSS and SSS and, if it sends them, its own PRS. Correlating with
         # the PSS and SSS alone is biased by a few nanoseconds by the PRS elements next to them, so the PRS goes into the reference when it is on the air.
-        self._lock_ref = self._sync_ref + (upsample2(prs_subframe(real_cell_id, 0, n_rb, n_f=0, normal_cp=False)) if real_cell_has_prs else 0.0)
-        self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0, normal_cp=False)) for c in cells}
+        self._lock_ref = self._sync_ref + (upsample2(prs_subframe(real_cell_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) if real_cell_has_prs else 0.0)
+        self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) for c in cells}
         self.lock_quality = 0.0       # match of the latest lock attempt over the background
         self.best_lock_ratio = 0.0    # the strongest match of any attempt, including those refused for not repeating
         self.injected = 0

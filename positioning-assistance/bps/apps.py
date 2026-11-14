@@ -125,7 +125,7 @@ def cmd_rig(a) -> None:
         refresh_epoch()
         return world.emulated_delay_s(cell_id, world.epoch_gps_ns if a.freeze else t_ns)
 
-    mixer = Mixer([EmulatedCell(c) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db)
+    mixer = Mixer([EmulatedCell(c) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal")
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.SUBSCRIBE, b"")
@@ -134,7 +134,7 @@ def cmd_rig(a) -> None:
     pub = ctx.socket(zmq.PUB)
     pub.setsockopt(zmq.SNDHWM, 10000)
     pub.bind(a.output)
-    print(f"{time.strftime('%H:%M:%S')} rig: {a.input} -> {a.output}, cells {a.cells} at {a.power_db} dB", flush=True)
+    print(f"{time.strftime('%H:%M:%S')} rig: {a.input} -> {a.output}, cells {a.cells} at {a.power_db} dB, {a.cp} cyclic prefix", flush=True)
     print(f"world_epoch_gps_ns={world.epoch_gps_ns}{' (delays frozen at the epoch)' if a.freeze else ''}", flush=True)
     n = 0
     was_locked = False
@@ -203,6 +203,7 @@ def main() -> None:
     r.add_argument("--cells", type=int, nargs="+", default=[2, 3, 4], help="the emulated cells, by identity")
     r.add_argument("--power-db", type=float, default=-6.0, help="their power against the real cell's PSS and SSS elements (at -12 dB the modem barely tells them from noise, at -6 dB it measures them to about 10 ns)")
     r.add_argument("--world-epoch-file", help="the publisher's world epoch (positions the RTD of the emulated cells in time)")
+    r.add_argument("--cp", choices=("extended", "normal"), default="extended", help="the real cell's cyclic prefix (the transmitter's extended_cp)")
     r.add_argument("--freeze", action="store_true", help="evaluate the delays at the world epoch, so they do not drift (for checks against exact values)")
     r.add_argument("--leap-seconds", type=int, default=18)
     a = ap.parse_args()

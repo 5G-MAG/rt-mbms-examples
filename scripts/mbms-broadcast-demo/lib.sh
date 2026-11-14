@@ -34,14 +34,28 @@ run_bg() {
     disown
 }
 
-# The eNB command line for the positioning rig: the tracked baseline configuration, PRS switched on, and the ZMQ output moved to POS_RIG_TX_PORT so the mixer can
-# take its place on the port the modem reads. device_args is taken from the baseline so a change there is followed.
+# The cyclic prefix of the real cell in the rig, extended or normal: POS_RIG_CP if set, else what the baseline configuration has (its extended_cp). The cyclic
+# prefix is a parameter of the cell (TS 36.211 clause 6.1: subframe #0's is used throughout); the mixer must build the cell acquisition subframe and the PRS with it.
+rig_cp() {
+    if [[ -n "${POS_RIG_CP:-}" ]]; then
+        [[ "$POS_RIG_CP" == extended || "$POS_RIG_CP" == normal ]] || die "POS_RIG_CP must be extended or normal, not $POS_RIG_CP"
+        echo "$POS_RIG_CP"; return
+    fi
+    local v; v="$(sed -n 's/^extended_cp *= *//p' "$TUTORIAL_DIR/conf/enb_baseline.conf" | tail -1 | tr -d ' ;')"
+    [[ "$v" == true ]] && echo extended || echo normal
+}
+
+# The eNB command line for the positioning rig: the tracked baseline configuration, PRS switched on, the cyclic prefix if POS_RIG_CP is set, and the ZMQ output
+# moved to POS_RIG_TX_PORT so the mixer can take its place on the port the modem reads. device_args is taken from the baseline so a change there is followed.
 rig_enb_conf() {
-    local conf="$TUTORIAL_DIR/conf/enb_baseline.conf" args
+    local conf="$TUTORIAL_DIR/conf/enb_baseline.conf" args cp=""
     args="$(sed -n 's/^device_args *= *//p' "$conf" | tail -1)"
     [[ "$args" == *"tx_port=tcp://*:$POS_RIG_OUT_PORT"* ]] || die "device_args of $conf has no tx_port=tcp://*:$POS_RIG_OUT_PORT to move: $args"
     args="${args/tx_port=tcp:\/\/\*:$POS_RIG_OUT_PORT/tx_port=tcp://*:$POS_RIG_TX_PORT}"
-    echo "enb_baseline.conf --prs.enable=true --prs.config_index=$POS_RIG_PRS_INDEX --prs.nof_subframes=1 --rf.device_args=$args"
+    if [[ -n "${POS_RIG_CP:-}" ]]; then
+        [[ "$(rig_cp)" == extended ]] && cp=" --expert.extended_cp=true" || cp=" --expert.extended_cp=false"
+    fi
+    echo "enb_baseline.conf --prs.enable=true --prs.config_index=$POS_RIG_PRS_INDEX --prs.nof_subframes=1$cp --rf.device_args=$args"
 }
 
 wait_for_tcp() {

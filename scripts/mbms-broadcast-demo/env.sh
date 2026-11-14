@@ -250,6 +250,7 @@ POS_RIG_TX_PORT="${POS_RIG_TX_PORT:-2002}"
 POS_RIG_OUT_PORT="${POS_RIG_OUT_PORT:-2000}"
 POS_RIG_POWER_DB="${POS_RIG_POWER_DB:--6}"    # emulated cells against the real cell's PSS and SSS elements (-12: barely detected; -6: measured to about 10 ns)
 POS_RIG_PRS_INDEX="${POS_RIG_PRS_INDEX:-2435}" # T_PRS 40, Delta_PRS 0: PRS in the cell acquisition subframe
+POS_RIG_CP="${POS_RIG_CP:-}"                 # extended or normal: the real cell's cyclic prefix. Unset: whatever the baseline configuration has (extended_cp)
 POS_RIG_FREEZE="${POS_RIG_FREEZE:-}"         # set: the emulated cells' delays do not drift (for checks against exact values)
 LEAP_SECONDS="${LEAP_SECONDS:-18}"           # GPS - UTC, as in sib.conf.mbsfn
 

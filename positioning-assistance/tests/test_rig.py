@@ -8,12 +8,13 @@ from bps.rig import BLOCK, CAS_PERIOD, FS, EmulatedCell, Mixer, correlation_lag,
 from bps.sync import cas_subframe
 
 
-def real_stream(n_periods: int, p_true: float, seed: int = 1, scale: float = 0.05, noise: float = 1e-4, cell_id: int = 1, only_first: bool = False) -> np.ndarray:
+def real_stream(n_periods: int, p_true: float, seed: int = 1, scale: float = 0.05, noise: float = 1e-4, cell_id: int = 1, only_first: bool = False,
+                normal_cp: bool = False) -> np.ndarray:
     """What the transmitter's stream looks like to the mixer: a cell acquisition subframe (PSS, SSS and the cell's own PRS) every 40 ms starting at p_true samples."""
     n = n_periods * CAS_PERIOD
     x = np.zeros(n + 16384, dtype=complex)
-    sync = upsample2(cas_subframe(cell_id, 25, normal_cp=False))
-    prs = upsample2(prs_subframe(cell_id, 0, 25, n_f=0, normal_cp=False))
+    sync = upsample2(cas_subframe(cell_id, 25, normal_cp=normal_cp))
+    prs = upsample2(prs_subframe(cell_id, 0, 25, n_f=0, normal_cp=normal_cp))
     for m in range(1 if only_first else n_periods):
         a = p_true + m * CAS_PERIOD
         i0 = int(math.floor(a))
@@ -79,19 +80,23 @@ class MixerTests(unittest.TestCase):
     CELLS = [EmulatedCell(2), EmulatedCell(3), EmulatedCell(4)]
     # propagation plus RTD, against the real cell, in seconds: within +-0.5 ms
     DELAYS = {2: 138.8e-6, 3: -50.4e-6, 4: 51.1e-6}
+    NORMAL_CP = False
+
+    def stream(self, *a, **kw):
+        return real_stream(*a, normal_cp=self.NORMAL_CP, **kw)
 
     def mixer(self, power_db=-12.0, delay_fn=None, **kw):
-        return Mixer(self.CELLS, delay_fn or (lambda cid, t: self.DELAYS[cid]), lambda: 10**18, power_db=power_db, **kw)
+        return Mixer(self.CELLS, delay_fn or (lambda cid, t: self.DELAYS[cid]), lambda: 10**18, power_db=power_db, normal_cp=self.NORMAL_CP, **kw)
 
     def test_nothing_changes_before_the_lock(self):
-        x = real_stream(1, 85.3)
+        x = self.stream(1, 85.3)
         m = self.mixer()
         out = run(m, x[: 10 * BLOCK])
         np.testing.assert_array_equal(out, x[: 10 * BLOCK])
         self.assertIsNone(m.p0)
 
     def test_locks_onto_the_real_cell_acquisition_subframe(self):
-        x = real_stream(4, 85.3)
+        x = self.stream(4, 85.3)
         m = self.mixer()
         run(m, x)
         self.assertIsNotNone(m.p0)
@@ -103,13 +108,13 @@ class MixerTests(unittest.TestCase):
     def test_a_strong_match_that_does_not_repeat_is_not_a_lock(self):
         # one clear match, nothing 40 ms before or after it: not the cell acquisition subframes of a cell
         m = self.mixer()
-        run(m, real_stream(4, 85.3, only_first=True))
+        run(m, self.stream(4, 85.3, only_first=True))
         self.assertIsNone(m.p0)
         self.assertGreater(m.best_lock_ratio, 8.0)            # it was strong: only the periodicity refused it
 
     def test_a_weak_match_that_repeats_is_not_a_lock(self):
         m = self.mixer()
-        run(m, real_stream(4, 85.3, noise=0.25))
+        run(m, self.stream(4, 85.3, noise=0.25))
         self.assertIsNone(m.p0)
         self.assertLess(m.lock_quality, 8.0)                  # it repeated: only the strength refused it
 
@@ -117,7 +122,7 @@ class MixerTests(unittest.TestCase):
         # 6 periods: the lock comes after 82 blocks, when the occasions at 85, 614485 and 1228885 are already past. Four are injected, three cells each: the
         # three that fall in the rest of the stream and the one just after its end, which is scheduled a few blocks ahead.
         m = self.mixer()
-        run(m, real_stream(6, 85.3))
+        run(m, self.stream(6, 85.3))
         self.assertEqual(m.injected, 3 * 4)
 
     def test_no_lock_without_a_cell(self):
@@ -130,10 +135,10 @@ class MixerTests(unittest.TestCase):
 
     def test_the_emulated_cells_arrive_at_their_delays(self):
         p_true = 85.3
-        x = real_stream(6, p_true)
+        x = self.stream(6, p_true)
         m = self.mixer()
         out = run(m, x)
-        refs = {c: upsample2(prs_subframe(c, 0, 25, n_f=0, normal_cp=False)) for c in (1, 2, 3, 4)}
+        refs = {c: upsample2(prs_subframe(c, 0, 25, n_f=0, normal_cp=self.NORMAL_CP)) for c in (1, 2, 3, 4)}
         # an occasion after the lock and its injections are all done: measure every cell in a window around it, independently of the mixer
         occasion = 4
         a = p_true + occasion * CAS_PERIOD
@@ -149,7 +154,7 @@ class MixerTests(unittest.TestCase):
         self.assertLess(abs(toa[1]) * 1e9, 5.0)
 
     def test_the_real_cell_is_untouched_outside_the_injections(self):
-        x = real_stream(6, 85.3)
+        x = self.stream(6, 85.3)
         m = self.mixer()
         out = run(m, x)
         # far from every cell acquisition subframe the output equals the input
@@ -158,14 +163,14 @@ class MixerTests(unittest.TestCase):
         self.assertGreater(m.injected, 0)
 
     def test_power_of_the_emulated_cells(self):
-        x = real_stream(6, 85.3)
+        x = self.stream(6, 85.3)
         m = self.mixer(power_db=-12.0)
         out = run(m, x)
         diff = (out.astype(complex) - x[: len(out)].astype(complex))
         a = 85.3 + 4 * CAS_PERIOD
         i0 = int(a) - 12000
         seg = diff[i0: i0 + 40000]               # holds every injected subframe of this occasion
-        w = upsample2(prs_subframe(3, 0, 25, n_f=0, normal_cp=False))
+        w = upsample2(prs_subframe(3, 0, 25, n_f=0, normal_cp=self.NORMAL_CP))
         # amplitude of cell 3's PRS in the added signal: projection on its own waveform at its delay (sub-sample aligned)
         lag, _ = correlation_lag(seg, w)
         i1 = int(math.floor(lag))
@@ -180,8 +185,8 @@ class MixerTests(unittest.TestCase):
             calls.append(t)
             return self.DELAYS[cid] + 1e-9 * len(calls)       # moves by 1 ns per scheduled injection
 
-        x = real_stream(7, 85.3)
-        m = Mixer(self.CELLS, delay, lambda: 10**18, power_db=-12.0)
+        x = self.stream(7, 85.3)
+        m = Mixer(self.CELLS, delay, lambda: 10**18, power_db=-12.0, normal_cp=self.NORMAL_CP)
         run(m, x)
         self.assertGreater(len(set(calls)), 0)
         self.assertGreaterEqual(len(calls), 6)
@@ -189,6 +194,20 @@ class MixerTests(unittest.TestCase):
     def test_only_the_25_prb_carrier_is_supported(self):
         with self.assertRaises(ValueError):
             Mixer(self.CELLS, lambda c, t: 0.0, lambda: 0, n_rb=50)
+
+
+class NormalCpMixerTests(MixerTests):
+    """The same, for a real cell with the normal cyclic prefix: the cyclic prefix is a parameter (TS 36.211 clause 6.1)."""
+    NORMAL_CP = True
+
+    def test_the_wrong_cyclic_prefix_does_not_lock_as_well(self):
+        # a mixer told the wrong cyclic prefix correlates with a subframe that is not the one on the air: its match is clearly weaker
+        right = self.mixer()
+        run(right, self.stream(4, 85.3))
+        wrong = Mixer(self.CELLS, lambda cid, t: self.DELAYS[cid], lambda: 10**18, normal_cp=False)
+        run(wrong, self.stream(4, 85.3))
+        self.assertIsNotNone(right.p0)
+        self.assertLess(wrong.best_lock_ratio, right.best_lock_ratio / 2)
 
 
 if __name__ == "__main__":
