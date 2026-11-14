@@ -30,6 +30,7 @@ FLUTE-delivered in a reserved MBMS session and refreshed every few seconds.
 | `bps/lab.py`, `bps/apps.py` | A synthetic world for the demo and the two command lines the demo scripts use |
 | `bps/prs.py` | PRS sequence and mapping (TS 36.211 clauses 6.10.4.1, 6.10.4.2, 7.2), an OFDM waveform of one PRS subframe, and a correlation ToA estimator that gives RSTDs from simulated received waveforms. Not part of the radio |
 | `bps/sync.py` | The alternative of slide 13, note 1: PSS and SSS (TS 36.211 clause 6.11) in the cell acquisition subframe, and a time-difference estimator with interference cancellation over a simulated channel. Not part of the radio |
+| `bps/rig.py` | A mixer for the transmitter's IQ stream: locks onto the real cell's cell acquisition subframes and adds emulated neighbouring cells (their PRS, at their propagation plus RTD delay, sub-sample accurate), so a receiver sees several cells on one eNB. Not a channel model |
 | `bps/compare.py` | The experiments behind the numbers: the error table of `bps/sync.py` and the PRS against PSS/SSS comparison |
 | `bps/live.py`, `bps/sim.py` | A reader of the modem's SIB16 output; the software-only simulation |
 
@@ -54,7 +55,12 @@ to the PRS question. Under equal conditions (UE-internal estimates, one path per
 with PRS at 0.6 and 1.1 m rmse (12.5 and 2.5 dB per resource element) and with PSS/SSS at 1.4, 4.4 and 14.6 m (20, 10 and 0 dB per resource element): PRS is about 5 times
 more accurate, as its bandwidth is (4.5 against 0.93 MHz). The PSS/SSS estimator needed interference cancellation: without it the cells' own signals bias each other (69 to
 94 ns at any SNR, `results/sync-sigma-2026-11-14.txt`) and a cell 10 dB stronger than another captures it. With the TS 36.133 reporting step the PRS path is limited to about 10 m.
-Known limits: PRS generation and ToA measurement are missing from the radio; the waveform model has one path per cell, no frequency offset, and the PBCH, PSS and
+The rig (`POS_RIG=1 ./start-all.sh`, see the demo README): the real transmitter sends PRS in its cell acquisition subframes (index 2435), its IQ goes through `bps.rig`, which adds cells 2 to 4 as
+PRS-only subframes at the delays the lab world gives them, and the real modem measures all four. Live, with the modem's own correlator and the assistance data pushed over its REST
+interface: at -12 dB the emulated cells are barely told from noise (peak over median 5.5 to 6.7 against 4.8 for a cell that is not there), at -6 dB the RSTDs of cells 2, 3 and 4 against cell 1 came out
+at errors of -8.8, -5.4 and -9.5 ns with standard deviations of 8.7, 11.2 and 7.1 ns over 32 occasions (peak over median 12 to 13; cell 1 itself 25). The emulated cells' power is a
+parameter (`POS_RIG_POWER_DB`, default -6): higher means better measurements and more interference to the real cell's own subframes.
+Known limits: the PRS of the real cell is only on the air if the transmitter is given `[prs]` (the rig does that); the waveform model has one path per cell, no frequency offset, and the PBCH, PSS and
 SSS exclusion is the pattern of an MBMS-dedicated cell without PBCH repetition or CAS muting; PRS is defined for 15 kHz spacing only and the MBSFN subframes of the demo carrier
 are 1.25 kHz, so the lab puts every cell's PRS in the cell acquisition subframes (index 2435), and that an MBMS-dedicated cell may send PRS is **not established**
 (SPEC-CLAIMS.md C28 to C32); the BM-SC does not send file objects of about 1.5 to 3 kB with application-layer FEC on, so the

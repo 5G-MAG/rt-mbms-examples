@@ -81,6 +81,13 @@ class World:
         return Measurement(sample_clock_ns, rstd, sigma_s=noise_ns * 1e-9)
 
 
+    def emulated_delay_s(self, cell_id: int, t_gps_ns: int) -> float:
+        """Arrival delay of cell `cell_id`'s subframe grid at the lab UE against the reference cell's: propagation difference plus the RTD at network time
+        `t_gps_ns`, folded to the closest subframe as TS 36.214 clause 5.1.12 defines the RSTD. What a mixer (bps.rig) puts in the stream."""
+        d = np.linalg.norm(CELLS_ENU - UE_ENU, axis=1) / C_MPS
+        rtd = 0.0 if cell_id == 1 else (self.true_rtd_ns(cell_id, t_gps_ns) + 500_000) % 1_000_000 - 500_000
+        return float(d[cell_id - 1] - d[0] + rtd * 1e-9)
+
     def measurement_from_prs(self, t_net_ns: int, sample_clock_ns: int, rng: np.random.Generator, snr_db: float = 0.0,
                              estimator_sigma_ns: float = 5.0, nrb: int = 25) -> Measurement:
         """As `measurement`, but each RSTD is estimated from simulated PRS waveforms (bps.prs) and reported with the resolution of

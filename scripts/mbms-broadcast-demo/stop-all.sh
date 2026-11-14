@@ -36,6 +36,7 @@ kill_pidfile media-server
 # Positioning assistance (09-start-positioning.sh), if it was started: its session lives on the BM-SC that is about to stop.
 [[ -f "$PID_DIR/pos-publisher.pid" ]] && ./stop-positioning.sh || true
 kill_pidfile cbc
+kill_pidfile pos-rig    # the positioning rig's mixer (11-start-prs-rig.sh), if POS_RIG was set
 
 if netns_exists; then
     log "tearing down the receive chain and netns $NETNS"

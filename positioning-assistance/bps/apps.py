@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import posixpath
 import time
 import urllib.request
@@ -88,6 +89,59 @@ def cmd_ue(a) -> None:
         time.sleep(a.interval)
 
 
+def cmd_rig(a) -> None:
+    """The mixer between the transmitter and the modem (bps.rig): the transmitter's IQ in on a ZMQ SUB socket, the same stream with the emulated cells added out on
+    a PUB socket, which is where the modem expects the transmitter."""
+    import zmq
+    from .rig import BLOCK, EmulatedCell, Mixer
+
+    world = lab.World(epoch_gps_ns=lab.host_gps_ns(a.leap_seconds))
+    state = {"mtime": None}
+
+    def refresh_epoch() -> None:
+        # the publisher's world epoch, once it has started: the RTD of the emulated cells must drift the way the broadcaster's monitor sees it
+        if not a.world_epoch_file:
+            return
+        try:
+            m = os.stat(a.world_epoch_file).st_mtime
+            if m != state["mtime"]:
+                world.epoch_gps_ns = int(open(a.world_epoch_file).read().strip())
+                state["mtime"] = m
+                print(f"{time.strftime('%H:%M:%S')} world epoch {world.epoch_gps_ns}", flush=True)
+        except (OSError, ValueError):
+            pass
+
+    def delay(cell_id: int, t_ns: int) -> float:
+        refresh_epoch()
+        return world.emulated_delay_s(cell_id, world.epoch_gps_ns if a.freeze else t_ns)
+
+    mixer = Mixer([EmulatedCell(c) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db)
+    ctx = zmq.Context()
+    sub = ctx.socket(zmq.SUB)
+    sub.setsockopt(zmq.SUBSCRIBE, b"")
+    sub.setsockopt(zmq.RCVHWM, 10000)
+    sub.connect(a.input)
+    pub = ctx.socket(zmq.PUB)
+    pub.setsockopt(zmq.SNDHWM, 10000)
+    pub.bind(a.output)
+    print(f"{time.strftime('%H:%M:%S')} rig: {a.input} -> {a.output}, cells {a.cells} at {a.power_db} dB", flush=True)
+    print(f"world_epoch_gps_ns={world.epoch_gps_ns}{' (delays frozen at the epoch)' if a.freeze else ''}", flush=True)
+    n = 0
+    was_locked = False
+    while True:
+        msg = sub.recv()
+        block = np.frombuffer(msg, dtype=np.complex64)
+        out = mixer.process(block) if len(block) == BLOCK else block
+        pub.send(np.ascontiguousarray(out, dtype=np.complex64).tobytes())
+        n += 1
+        if mixer.p0 is not None and not was_locked:
+            was_locked = True
+            print(f"{time.strftime('%H:%M:%S')} rig: locked onto the cell acquisition subframes (match {mixer.lock_quality:.0f} times the background, "
+                  f"stream scale {mixer.scale:.4f})", flush=True)
+        if n % 5000 == 0:
+            print(f"{time.strftime('%H:%M:%S')} rig: {n} blocks, {mixer.injected} cell subframes added", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -129,8 +183,16 @@ def main() -> None:
     u.add_argument("--interval", type=float, default=2.0)
     u.add_argument("--seconds", type=float, default=60.0)
     u.add_argument("--leap-seconds", type=int, default=18)
+    r = sub.add_parser("rig", help="mix emulated neighbouring cells into the transmitter's IQ stream")
+    r.add_argument("--input", default="tcp://127.0.0.1:2002", help="the transmitter's ZMQ output (its tx_port)")
+    r.add_argument("--output", default="tcp://*:2000", help="where the modem expects the transmitter")
+    r.add_argument("--cells", type=int, nargs="+", default=[2, 3, 4], help="the emulated cells, by identity")
+    r.add_argument("--power-db", type=float, default=-6.0, help="their power against the real cell's PSS and SSS elements (at -12 dB the modem barely tells them from noise, at -6 dB it measures them to about 10 ns)")
+    r.add_argument("--world-epoch-file", help="the publisher's world epoch (positions the RTD of the emulated cells in time)")
+    r.add_argument("--freeze", action="store_true", help="evaluate the delays at the world epoch, so they do not drift (for checks against exact values)")
+    r.add_argument("--leap-seconds", type=int, default=18)
     a = ap.parse_args()
-    {"publish": cmd_publish, "ue": cmd_ue}[a.cmd](a)
+    {"publish": cmd_publish, "ue": cmd_ue, "rig": cmd_rig}[a.cmd](a)
 
 
 if __name__ == "__main__":

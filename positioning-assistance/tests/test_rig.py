@@ -1,0 +1,195 @@
+import math
+import unittest
+
+import numpy as np
+
+from bps.prs import prs_subframe
+from bps.rig import BLOCK, CAS_PERIOD, FS, EmulatedCell, Mixer, correlation_lag, frac_delay, upsample2
+from bps.sync import cas_subframe
+
+
+def real_stream(n_periods: int, p_true: float, seed: int = 1, scale: float = 0.05, noise: float = 1e-4, cell_id: int = 1, only_first: bool = False) -> np.ndarray:
+    """What the transmitter's stream looks like to the mixer: a cell acquisition subframe (PSS, SSS and the cell's own PRS) every 40 ms starting at p_true samples."""
+    n = n_periods * CAS_PERIOD
+    x = np.zeros(n + 16384, dtype=complex)
+    sync = upsample2(cas_subframe(cell_id, 25, normal_cp=False))
+    prs = upsample2(prs_subframe(cell_id, 0, 25, n_f=0, normal_cp=False))
+    for m in range(1 if only_first else n_periods):
+        a = p_true + m * CAS_PERIOD
+        i0 = int(math.floor(a))
+        x[i0: i0 + 16384] += frac_delay((sync + prs) * scale, a - i0)
+    rng = np.random.default_rng(seed)
+    x = x[:n] + noise * (rng.standard_normal(n) + 1j * rng.standard_normal(n))
+    return x.astype(np.complex64)
+
+
+def run(mixer: Mixer, x: np.ndarray) -> np.ndarray:
+    out = []
+    for i in range(len(x) // BLOCK):
+        out.append(mixer.process(x[i * BLOCK:(i + 1) * BLOCK]))
+    return np.concatenate(out)
+
+
+class Helpers(unittest.TestCase):
+    def test_upsample_keeps_the_even_samples_and_the_energy(self):
+        w = prs_subframe(3, 0, 25, n_f=0, normal_cp=False)
+        u = upsample2(w)
+        self.assertEqual(len(u), 15360)
+        np.testing.assert_allclose(u[::2], w, atol=1e-9)                     # ideal interpolation: the original samples stay
+        self.assertAlmostEqual(float(np.sum(np.abs(u) ** 2)) / float(np.sum(np.abs(w) ** 2)), 2.0, places=9)
+
+    def test_frac_delay_and_lag_search(self):
+        ref = upsample2(cas_subframe(1, 25, normal_cp=False))
+        for delay in (0.0, 0.37, 0.5, 0.93):
+            x = np.zeros(40000, dtype=complex)
+            x[5000: 5000 + 16384] = frac_delay(ref, delay)
+            lag, _ = correlation_lag(x, ref)
+            self.assertAlmostEqual(lag, 5000 + delay, delta=0.02, msg=str(delay))
+
+    def test_lag_search_with_noise(self):
+        ref = upsample2(cas_subframe(1, 25, normal_cp=False))
+        rng = np.random.default_rng(3)
+        x = np.zeros(40000, dtype=complex)
+        x[7000: 7000 + 16384] = frac_delay(ref * 0.05, 0.61)
+        x += 2e-3 * (rng.standard_normal(40000) + 1j * rng.standard_normal(40000))
+        lag, _ = correlation_lag(x, ref)
+        self.assertAlmostEqual(lag, 7000.61, delta=0.05)
+
+
+class LabDelays(unittest.TestCase):
+    def test_emulated_delay_is_the_rstd_the_lab_ue_would_measure(self):
+        from bps import lab
+        w = lab.World(epoch_gps_ns=1_500_000_000 * 10**9, seed=2)
+        for dt in (0, 40, 300):
+            t = w.epoch_gps_ns + dt * 10**9
+            m = w.measurement(t, 0, noise_ns=0.0)
+            self.assertEqual(w.emulated_delay_s(1, t), 0.0)
+            for cid in (2, 3, 4):
+                self.assertAlmostEqual(w.emulated_delay_s(cid, t), m.rstd_s[cid], delta=1e-12, msg=f"cell {cid} at +{dt} s")
+
+    def test_the_delay_drifts_with_the_rtd(self):
+        from bps import lab
+        w = lab.World(epoch_gps_ns=1_500_000_000 * 10**9, seed=2)
+        d0 = w.emulated_delay_s(3, w.epoch_gps_ns)
+        d100 = w.emulated_delay_s(3, w.epoch_gps_ns + 100 * 10**9)
+        self.assertAlmostEqual((d100 - d0) * 1e9, -2.0 * 100, delta=1e-6)     # cell 3 drifts -2 ns per second (lab.TRUE_RTD)
+
+
+class MixerTests(unittest.TestCase):
+    CELLS = [EmulatedCell(2), EmulatedCell(3), EmulatedCell(4)]
+    # propagation plus RTD, against the real cell, in seconds: within +-0.5 ms
+    DELAYS = {2: 138.8e-6, 3: -50.4e-6, 4: 51.1e-6}
+
+    def mixer(self, power_db=-12.0, delay_fn=None, **kw):
+        return Mixer(self.CELLS, delay_fn or (lambda cid, t: self.DELAYS[cid]), lambda: 10**18, power_db=power_db, **kw)
+
+    def test_nothing_changes_before_the_lock(self):
+        x = real_stream(1, 85.3)
+        m = self.mixer()
+        out = run(m, x[: 10 * BLOCK])
+        np.testing.assert_array_equal(out, x[: 10 * BLOCK])
+        self.assertIsNone(m.p0)
+
+    def test_locks_onto_the_real_cell_acquisition_subframe(self):
+        x = real_stream(4, 85.3)
+        m = self.mixer()
+        run(m, x)
+        self.assertIsNotNone(m.p0)
+        # the lock is on one of the cell acquisition subframes (any of them, they repeat every 40 ms)
+        self.assertAlmostEqual(((m.p0 - 85.3 + CAS_PERIOD / 2) % CAS_PERIOD) - CAS_PERIOD / 2, 0.0, delta=0.02)
+        self.assertGreater(m.lock_quality, 8.0)
+        self.assertAlmostEqual(m.scale, 0.05, delta=0.001)                    # the scale of the stream, from the PSS and SSS
+
+    def test_a_strong_match_that_does_not_repeat_is_not_a_lock(self):
+        # one clear match, nothing 40 ms before or after it: not the cell acquisition subframes of a cell
+        m = self.mixer()
+        run(m, real_stream(4, 85.3, only_first=True))
+        self.assertIsNone(m.p0)
+        self.assertGreater(m.best_lock_ratio, 8.0)            # it was strong: only the periodicity refused it
+
+    def test_a_weak_match_that_repeats_is_not_a_lock(self):
+        m = self.mixer()
+        run(m, real_stream(4, 85.3, noise=0.25))
+        self.assertIsNone(m.p0)
+        self.assertLess(m.lock_quality, 8.0)                  # it repeated: only the strength refused it
+
+    def test_only_the_occasions_after_the_lock_are_injected(self):
+        # 6 periods: the lock comes after 82 blocks, when the occasions at 85, 614485 and 1228885 are already past. Four are injected, three cells each: the
+        # three that fall in the rest of the stream and the one just after its end, which is scheduled a few blocks ahead.
+        m = self.mixer()
+        run(m, real_stream(6, 85.3))
+        self.assertEqual(m.injected, 3 * 4)
+
+    def test_no_lock_without_a_cell(self):
+        rng = np.random.default_rng(5)
+        x = (1e-3 * (rng.standard_normal(5 * CAS_PERIOD) + 1j * rng.standard_normal(5 * CAS_PERIOD))).astype(np.complex64)
+        m = self.mixer()
+        out = run(m, x)
+        self.assertIsNone(m.p0)
+        np.testing.assert_array_equal(out, x[: len(out)])
+
+    def test_the_emulated_cells_arrive_at_their_delays(self):
+        p_true = 85.3
+        x = real_stream(6, p_true)
+        m = self.mixer()
+        out = run(m, x)
+        refs = {c: upsample2(prs_subframe(c, 0, 25, n_f=0, normal_cp=False)) for c in (1, 2, 3, 4)}
+        # an occasion after the lock and its injections are all done: measure every cell in a window around it, independently of the mixer
+        occasion = 4
+        a = p_true + occasion * CAS_PERIOD
+        lo = int(a) - 12000
+        win = out[lo: lo + 40000].astype(complex)
+        toa = {}
+        for c in (1, 2, 3, 4):
+            lag, _ = correlation_lag(win, refs[c])
+            toa[c] = (lag + lo - a) / FS
+        # the real cell sits at 0 (its own PRS, with the others leaking into the estimate); the others at their delays: differences within 5 ns
+        for c in (2, 3, 4):
+            self.assertAlmostEqual((toa[c] - toa[1]) * 1e9, self.DELAYS[c] * 1e9, delta=5.0, msg=f"cell {c}")
+        self.assertLess(abs(toa[1]) * 1e9, 5.0)
+
+    def test_the_real_cell_is_untouched_outside_the_injections(self):
+        x = real_stream(6, 85.3)
+        m = self.mixer()
+        out = run(m, x)
+        # far from every cell acquisition subframe the output equals the input
+        far = slice(3 * BLOCK, 3 * BLOCK + 5 * BLOCK)
+        np.testing.assert_array_equal(out[far], x[far][: len(out[far])])
+        self.assertGreater(m.injected, 0)
+
+    def test_power_of_the_emulated_cells(self):
+        x = real_stream(6, 85.3)
+        m = self.mixer(power_db=-12.0)
+        out = run(m, x)
+        diff = (out.astype(complex) - x[: len(out)].astype(complex))
+        a = 85.3 + 4 * CAS_PERIOD
+        i0 = int(a) - 12000
+        seg = diff[i0: i0 + 40000]               # holds every injected subframe of this occasion
+        w = upsample2(prs_subframe(3, 0, 25, n_f=0, normal_cp=False))
+        # amplitude of cell 3's PRS in the added signal: projection on its own waveform at its delay (sub-sample aligned)
+        lag, _ = correlation_lag(seg, w)
+        i1 = int(math.floor(lag))
+        aligned = frac_delay(w, lag - i1, len(w) + 64)[: len(w)]
+        proj = abs(np.vdot(aligned, seg[i1: i1 + len(w)])) / np.vdot(aligned, aligned).real
+        self.assertAlmostEqual(proj / m.scale, 10 ** (-12.0 / 20.0), delta=0.01)
+
+    def test_a_delay_that_drifts_is_followed(self):
+        calls = []
+
+        def delay(cid, t):
+            calls.append(t)
+            return self.DELAYS[cid] + 1e-9 * len(calls)       # moves by 1 ns per scheduled injection
+
+        x = real_stream(7, 85.3)
+        m = Mixer(self.CELLS, delay, lambda: 10**18, power_db=-12.0)
+        run(m, x)
+        self.assertGreater(len(set(calls)), 0)
+        self.assertGreaterEqual(len(calls), 6)
+
+    def test_only_the_25_prb_carrier_is_supported(self):
+        with self.assertRaises(ValueError):
+            Mixer(self.CELLS, lambda c, t: 0.0, lambda: 0, n_rb=50)
+
+
+if __name__ == "__main__":
+    unittest.main()

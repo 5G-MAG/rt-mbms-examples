@@ -39,6 +39,12 @@ require_cmd python3
 log "=== 0/4 clearing anything already running ==="
 ./stop-all.sh >/dev/null 2>&1 || true
 
+if [[ "${POS_RIG:-0}" == 1 ]]; then
+    log "=== positioning rig: PRS on the transmitter, the mixer between it and the modem ==="
+    ./11-start-prs-rig.sh
+    export ENB_CONF="$(rig_enb_conf)"
+fi
+
 log "=== 1/4 transmit side (EPC, eNB, MBMS-GW, BM-SC, portal) ==="
 ./01-start-transmit.sh
 

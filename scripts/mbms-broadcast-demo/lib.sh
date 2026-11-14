@@ -34,6 +34,16 @@ run_bg() {
     disown
 }
 
+# The eNB command line for the positioning rig: the tracked baseline configuration, PRS switched on, and the ZMQ output moved to POS_RIG_TX_PORT so the mixer can
+# take its place on the port the modem reads. device_args is taken from the baseline so a change there is followed.
+rig_enb_conf() {
+    local conf="$TUTORIAL_DIR/conf/enb_baseline.conf" args
+    args="$(sed -n 's/^device_args *= *//p' "$conf" | tail -1)"
+    [[ "$args" == *"tx_port=tcp://*:$POS_RIG_OUT_PORT"* ]] || die "device_args of $conf has no tx_port=tcp://*:$POS_RIG_OUT_PORT to move: $args"
+    args="${args/tx_port=tcp:\/\/\*:$POS_RIG_OUT_PORT/tx_port=tcp://*:$POS_RIG_TX_PORT}"
+    echo "enb_baseline.conf --prs.enable=true --prs.config_index=$POS_RIG_PRS_INDEX --prs.nof_subframes=1 --rf.device_args=$args"
+}
+
 wait_for_tcp() {
     local host="$1" port="$2" timeout="${3:-20}"
     local waited=0

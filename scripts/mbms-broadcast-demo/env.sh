@@ -243,6 +243,14 @@ POS_VALIDITY="${POS_VALIDITY:-90}"           # seconds a document stays usable
 POS_DOC_URL="${POS_DOC_URL:-http://$RX_ADDR:$CLIENT_API_PORT/$POS_FILE_PATH}"
 POS_MEASURE="${POS_MEASURE:-formula}"        # formula: from the geometry; prs: simulated PRS waveforms; sync: simulated PSS and SSS
 POS_SNR_DB="${POS_SNR_DB:-}"                 # prs: SNR per sample (UE default 0); sync: SNR per resource element (UE default 10)
+# The rig (POS_RIG=1): the transmitter sends PRS and its IQ goes through a mixer (bps.rig) that adds emulated neighbouring cells, so the modem has several cells to
+# measure on one eNB. The mixer takes the transmitter's stream on POS_RIG_TX_PORT and publishes it on the port the modem reads (2000).
+POS_RIG="${POS_RIG:-0}"
+POS_RIG_TX_PORT="${POS_RIG_TX_PORT:-2002}"
+POS_RIG_OUT_PORT="${POS_RIG_OUT_PORT:-2000}"
+POS_RIG_POWER_DB="${POS_RIG_POWER_DB:--6}"    # emulated cells against the real cell's PSS and SSS elements (-12: barely detected; -6: measured to about 10 ns)
+POS_RIG_PRS_INDEX="${POS_RIG_PRS_INDEX:-2435}" # T_PRS 40, Delta_PRS 0: PRS in the cell acquisition subframe
+POS_RIG_FREEZE="${POS_RIG_FREEZE:-}"         # set: the emulated cells' delays do not drift (for checks against exact values)
 LEAP_SECONDS="${LEAP_SECONDS:-18}"           # GPS - UTC, as in sib.conf.mbsfn
 
 set +a
