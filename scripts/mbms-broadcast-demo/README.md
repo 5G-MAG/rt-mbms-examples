@@ -463,7 +463,8 @@ repository (`BPS_DIR`).
 Several cells on one eNB (`POS_RIG=1`): `POS_RIG=1 ./start-all.sh` starts a mixer (`11-start-prs-rig.sh`, `positioning-assistance/bps/rig.py`) before the transmit side and gives the
 transmitter PRS (`--prs.enable`, index `POS_RIG_PRS_INDEX`, default 2435) and its ZMQ output on port `POS_RIG_TX_PORT` (2002); the mixer republishes it on the port the modem reads (2000) with
 three emulated neighbouring cells added to the cell acquisition subframes, at `POS_RIG_POWER_DB` (default -6) below the real cell's PSS and SSS. `POS_RIG_FREEZE=1` stops their delays drifting, for
-checks against exact values. The modem is told which cells to measure through its REST interface (`PUT /modem-api/prs_assistance`, results at `GET /modem-api/prs`).
+checks against exact values. The modem is told which cells to measure through its REST interface (`PUT /modem-api/prs_assistance`, results at `GET /modem-api/prs`);
+`POS_MEASURE=modem ./10-run-positioning-ue.sh` makes the UE do that with the PRS information of the document it received (slide 15 of the proposal) and solve from what the modem measures.
 
 Requirements: the transmitter and modem builds with SIB16 time support (rt-mbms-tx and rt-mbms-modem `feature/sib16-time-reference`),
 the eNB configuration lists the second session's C-TEID (`pmch1.session_teids = 0xCCCC,0xCCCD`, in this repository), the BM-SC announces

@@ -241,7 +241,7 @@ POS_INTERVAL="${POS_INTERVAL:-5}"            # seconds between documents
 POS_VALIDITY="${POS_VALIDITY:-90}"           # seconds a document stays usable
 # Where the UE reads the document: rt-mbms-client serves the files it receives under the session's Display Base URL.
 POS_DOC_URL="${POS_DOC_URL:-http://$RX_ADDR:$CLIENT_API_PORT/$POS_FILE_PATH}"
-POS_MEASURE="${POS_MEASURE:-formula}"        # formula: from the geometry; prs: simulated PRS waveforms; sync: simulated PSS and SSS
+POS_MEASURE="${POS_MEASURE:-formula}"        # formula: from the geometry; prs: simulated PRS waveforms; sync: simulated PSS and SSS; modem: measured by the modem on the PRS it receives (needs POS_RIG=1)
 POS_SNR_DB="${POS_SNR_DB:-}"                 # prs: SNR per sample (UE default 0); sync: SNR per resource element (UE default 10)
 # The rig (POS_RIG=1): the transmitter sends PRS and its IQ goes through a mixer (bps.rig) that adds emulated neighbouring cells, so the modem has several cells to
 # measure on one eNB. The mixer takes the transmitter's stream on POS_RIG_TX_PORT and publishes it on the port the modem reads (2000).
