@@ -116,7 +116,7 @@ def cmd_ue(a) -> None:
     rng = np.random.default_rng(3)
     clock, store = NetworkClock(), AssistanceStore()
     positioner = Positioner(clock, store, height_m=lab.UE_ENU[2] + lab.ORIGIN[2])
-    modem_prs = ModemPrs(a.modem_url.rsplit("/", 1)[0], ratio_min=a.prs_ratio_min, sigma_ns=a.toa_sigma_ns, signal=a.toa_signal) if a.measure == "modem" else None
+    modem_prs = ModemPrs(a.modem_url.rsplit("/", 1)[0], ratio_min=a.prs_ratio_min, signal=a.toa_signal) if a.measure == "modem" else None
     end = time.time() + a.seconds
     last_doc = None
     print(f"{'time':>8} {'doc':>11} {'net time - host (ms)':>26} {'error m':>8} {'claimed m':>10}", flush=True)
@@ -277,10 +277,6 @@ def main() -> None:
     u.add_argument("--toa-signal", choices=("prs", "pss_sss"), default="prs",
                    help="with --measure modem: what the modem takes the time of arrival from, the PRS of the assistance data (default) or the PSS and SSS of each cell's "
                         "cell acquisition subframe (the proposal's alternative where those subframes are not SFN'ed, slide 13 Note 1)")
-    u.add_argument("--toa-sigma-ns", type=float, default=15.0,
-                   help="with --measure modem: the error given to each time difference. The default is what was measured live for PRS (25 PRB, one path); the PSS and SSS "
-                        "have 62 subcarriers instead of 300 and one live run gave position errors about 1.3 times those claimed with it (rms 33 m against 26 m, 43 fixes), so a "
-                        "larger value is appropriate with --toa-signal pss_sss")
     u.add_argument("--snr-db", type=float, default=None,
                    help="with --measure prs: signal to noise ratio per sample of each cell (default 0); with --measure sync: per resource "
                         "element (default 10)")
