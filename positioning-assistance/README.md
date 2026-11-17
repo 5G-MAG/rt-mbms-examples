@@ -47,6 +47,21 @@ In that demo the document and the network time are live, on a ZMQ software radio
 `POS_MEASURE=prs` (`--measure prs` on the UE) estimates them from simulated PRS waveforms of the four virtual cells. `POS_RIG=1 POS_MEASURE=modem`
 (`--measure modem`) takes them from the modem, which measures the PRS it receives: see "The rig" below.
 
+### Accuracy on the real platform (scenario runner)
+
+`python3 -m bps.scenario_run scenario.json [--out DIR] [--seconds N]` runs one scenario through the real chain (the demo with `POS_RIG=1`, the publisher, the UE with
+`POS_MEASURE=modem`) and stores the UE's fixes as JSON; `python3 -m bps.scenario_report result.json [more.json] -o report.html` turns one or several results into a page
+(summary table, error distribution, east and north error of every fix, real against claimed error, time-difference error per cell). A scenario file sets the UE position,
+the cell positions, the emulated RTDs, the received power of each emulated cell (explicitly or from a path loss exponent), the noise (`snr_db`), the carrier offset of a
+cell, the noise of the monitoring receiver the document's RTD is estimated from (`monitor_noise_ns`, default 20) and the cyclic prefix; `bps/scenario.py` documents the
+fields. A run is real time: about a minute to start, 20 s of warmup, then the UE's duration, a fix every 2 s at best. The error is the horizontal distance between the fix
+and the position the scenario gives the UE.
+
+What it shows: the accuracy of this implementation (modem time of arrival, document, SIB16, solver) under the conditions given, where measurement stops working, and
+whether the solver's claimed accuracy holds. What it does not: field accuracy (cells 2 to 4 are PRS-only subframes added by the rig, each on one path: no multipath, no fading),
+accuracy over an area (one run is one position), or a fixed monitor calibration error (only the monitor's timestamp noise is a parameter). Results of the first twelve runs
+are in the Standards2Deployments register under `projects/mbms/evidence/2026-11-17-accuracy-simulator`.
+
 Verification: 205 unit tests (`python3 -m unittest discover -s tests`, about 60 s), and reset-rig runs of the demo. With the time differences from the
 formula: 30 fixes, rmse 8.9 m against 10.0 m claimed. From PRS waveforms (three runs, 25 fixes each, same random seed so the same noise): rmse 10.3, 10.3 and 9.9 m against 11.9 m claimed, worst
 fix 2.02 claimed sigma. The PRS path uses the

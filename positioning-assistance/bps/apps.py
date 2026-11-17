@@ -32,6 +32,18 @@ def _cell_cp(items) -> dict:
     return out
 
 
+def _cell_power(items) -> dict:
+    """`--cell-power 3=-9` (repeatable) as {3: -9.0}, in dB against the real cell's PSS and SSS elements."""
+    out = {}
+    for it in items or []:
+        cid, _, db = it.partition("=")
+        try:
+            out[int(cid)] = float(db)
+        except ValueError:
+            raise SystemExit(f"--cell-power wants CELL=DB, e.g. 3=-9, not {it!r}")
+    return out
+
+
 def _cell_cfo(items) -> dict:
     """`--cell-cfo 3=150` (repeatable) as {3: 150.0}, in Hz."""
     out = {}
@@ -119,6 +131,12 @@ def cmd_ue(a) -> None:
     modem_prs = ModemPrs(a.modem_url.rsplit("/", 1)[0], ratio_min=a.prs_ratio_min) if a.measure == "modem" else None
     end = time.time() + a.seconds
     last_doc = None
+    record = open(a.json_out, "w") if a.json_out else None   # one JSON object per line: a fix, a refusal or a document, for the scenario runner
+
+    def note(kind: str, **fields) -> None:
+        if record is not None:
+            record.write(json.dumps({"t": time.time(), "kind": kind, **fields}) + "\n")
+            record.flush()
     print(f"{'time':>8} {'doc':>11} {'net time - host (ms)':>26} {'error m':>8} {'claimed m':>10}", flush=True)
     while time.time() < end:
         try:
@@ -127,6 +145,7 @@ def cmd_ue(a) -> None:
                 last_doc = raw
                 verdict = store.ingest(raw)
                 print(f"{time.strftime('%H:%M:%S')} document: {verdict}", flush=True)
+                note("document", verdict=str(verdict), bytes=len(raw))
         except (OSError, ValueError):
             pass
         info = json.loads(_fetch(a.modem_url))
@@ -151,10 +170,17 @@ def cmd_ue(a) -> None:
                 fix = positioner.solve(m)
             except (StaleDocument, ValueError, ModemRefused, OSError) as e:
                 print(f"{time.strftime('%H:%M:%S')} no fix: {e}", flush=True)
+                note("no_fix", reason=str(e))
             else:
                 err = np.linalg.norm(geo.lla_to_enu(lab.ORIGIN, (fix.latitude_deg, fix.longitude_deg, lab.UE_ENU[2] + lab.ORIGIN[2]))[:2]
                                      - lab.UE_ENU[:2])
                 host_ms = (t_net - lab.host_gps_ns(a.leap_seconds)) / 1e6
+                if record is not None:
+                    east_north = geo.lla_to_enu(lab.ORIGIN, (fix.latitude_deg, fix.longitude_deg, lab.UE_ENU[2] + lab.ORIGIN[2]))[:2]
+                    # what each time difference got wrong against the world the rig built (ns): the measurement error before the solver
+                    rstd_error = {str(cid): (r - world.emulated_delay_s(cid, t_net)) * 1e9 for cid, r in m.rstd_s.items()}
+                    note("fix", error_m=float(err), claimed_m=float(fix.horizontal_sigma_m), east_err_m=float(east_north[0] - lab.UE_ENU[0]), north_err_m=float(east_north[1] - lab.UE_ENU[1]),
+                         version=int(fix.document_version), cells=sorted(int(c) for c in m.rstd_s), rstd_error_ns=rstd_error)
                 print(f"{time.strftime('%H:%M:%S'):>8} v{fix.document_version:>10} {host_ms:>26.1f} {err:>8.1f} {fix.horizontal_sigma_m:>10.1f}", flush=True)
         time.sleep(a.interval)
 
@@ -187,7 +213,8 @@ def cmd_rig(a) -> None:
 
     cell_cp = _cell_cp(a.cell_cp)
     cell_cfo = _cell_cfo(a.cell_cfo)
-    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs)
+    cell_power = _cell_power(a.cell_power)
+    mixer = Mixer([EmulatedCell(c, normal_cp=(cell_cp[c] == "normal") if c in cell_cp else None, cfo_hz=cell_cfo.get(c, 0.0), power_db=cell_power.get(c)) for c in a.cells], delay, lambda: lab.host_gps_ns(a.leap_seconds), power_db=a.power_db, normal_cp=a.cp == "normal", snr_db=a.snr_db, real_cell_has_prs=not a.no_real_prs)
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.SUBSCRIBE, b"")
@@ -274,6 +301,7 @@ def main() -> None:
     u.add_argument("--snr-db", type=float, default=None,
                    help="with --measure prs: signal to noise ratio per sample of each cell (default 0)")
     u.add_argument("--interval", type=float, default=2.0)
+    u.add_argument("--json-out", help="write every fix, refusal and document to this file, one JSON object per line (for bps.scenario_run)")
     u.add_argument("--seconds", type=float, default=60.0)
     u.add_argument("--leap-seconds", type=int, default=18)
     r = sub.add_parser("rig", help="mix emulated neighbouring cells into the transmitter's IQ stream")
@@ -286,6 +314,7 @@ def main() -> None:
     r.add_argument("--snr-db", type=float, default=None, help="add white noise to the stream: Es/N0 per resource element (a PSS or SSS element of the real cell is the reference) at the modem")
     r.add_argument("--snr-file", help="a file holding the Es/N0 in dB (or `off`), read once a second and followed while running; overrides --snr-db")
     r.add_argument("--no-real-prs", action="store_true", help="the real cell sends no PRS (the lock reference then holds its PSS and SSS only)")
+    r.add_argument("--cell-power", action="append", metavar="CELL=DB", help="an emulated cell's power in dB against the real cell's PSS and SSS elements, instead of --power-db (repeatable)")
     r.add_argument("--cell-cfo", action="append", metavar="CELL=HZ", help="an emulated cell's carrier frequency offset against the real cell's (separate oscillators), in Hz (repeatable)")
     r.add_argument("--cell-cp", action="append", metavar="CELL=normal|extended", help="an emulated cell whose cyclic prefix differs from the real cell's (repeatable)")
     r.add_argument("--freeze", action="store_true", help="evaluate the delays at the world epoch, so they do not drift (for checks against exact values)")

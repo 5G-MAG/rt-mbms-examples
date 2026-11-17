@@ -257,6 +257,7 @@ POS_SERVICE_RADIUS_M="${POS_SERVICE_RADIUS_M:-}"   # how far from the centre of 
 POS_BROADCAST_AREA="${POS_BROADCAST_AREA:-}"       # the broadcastArea named in the file's envelope (the deck's example has "Area1"); unset: left out
 POS_FEC="${POS_FEC:-false}"                    # true: application-layer FEC on the positioning session (the deck, slide 18 step 7: "FEC decoding"); off by default; needs the rt-libflute fix "File: send only as many encoding symbols in a packet as fit in it" in the BM-SC build (see bps.apps publish --fec)
 POS_DELIVER="${POS_DELIVER:-file}"              # file: the assistance file goes over the air; url: its URL does (on the demo origin), and the UE fetches the file (the deck, slide 18)
+POS_CELL_POWER="${POS_CELL_POWER:-}"            # per-cell powers of the emulated cells in dB against the real cell, e.g. "2=-8 3=-11"; unset: all at POS_RIG_POWER_DB
 POS_CELL_CFO="${POS_CELL_CFO:-}"                # per-cell carrier frequency offsets of the emulated cells in Hz, e.g. "3=150 4=-80" (separate oscillators); unset: none
 POS_CELL_CP="${POS_CELL_CP:-}"                 # per-cell cyclic prefix, e.g. "3=normal 4=normal": stated in the document (publisher) and used by the mixer for that emulated cell. Unset: every cell has the serving cell's
 POS_RIG_CELL_CP="${POS_RIG_CELL_CP-$POS_CELL_CP}"   # the cyclic prefixes the mixer gives its emulated cells; by default those the document states (set it empty, or differently, to test a document that does not match what is on the air)

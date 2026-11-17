@@ -8,6 +8,7 @@ network time the UE derived, so a wrong network time or a missing drift shows up
 from __future__ import annotations
 
 import math
+import sys
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -29,8 +30,13 @@ MONITOR_ENU = (1000.0, 500.0, 10.0)
 # RTD of cells 2..4 at EPOCH_ns (ns) and its drift (ns per second)
 TRUE_RTD = {2: (123_456.0, 3.0), 3: (-80_000.0, -2.0), 4: (40_000.0, 1.5)}
 UE_ENU = np.array([2500.0, -3200.0, 1.5])
+MONITOR_NOISE_NS = 20.0   # 1-sigma of one arrival timestamp of the broadcaster's monitoring receiver (the RTD in the document is estimated from these)
 PRS_INDEX = 2435
 UNIX_TO_GPS_NS = 315_964_800 * 10**9  # GPS epoch in Unix time; leap seconds are applied by the caller when they matter
+
+from . import scenario as _scenario
+
+SCENARIO = _scenario.apply_to_lab(sys.modules[__name__])   # BPS_SCENARIO: another geometry for the same chain; None when it is not set
 
 
 def network(cell_cp: Optional[dict] = None, reference_cp: str = "extended", reference_ecgi: Optional[tuple[str, str, int]] = None) -> Network:
@@ -53,7 +59,7 @@ def network(cell_cp: Optional[dict] = None, reference_cp: str = "extended", refe
 @dataclass
 class World:
     epoch_gps_ns: int           # when TRUE_RTD holds
-    noise_ns: float = 20.0
+    noise_ns: float = MONITOR_NOISE_NS
     seed: int = 1
 
     def __post_init__(self):

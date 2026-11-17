@@ -261,6 +261,14 @@ class CfoMixerTests(unittest.TestCase):
         out = run(m, x)
         return m, out.astype(complex) - x[: len(out)].astype(complex)
 
+    def test_a_cell_with_its_own_power_is_scaled_to_it(self):
+        _, loud = self.injected([EmulatedCell(2, power_db=0.0)])
+        _, quiet = self.injected([EmulatedCell(2, power_db=-12.0)])
+        _, default = self.injected([EmulatedCell(2)])          # the mixer's power_db (0 dB in this helper)
+        ratio = np.linalg.norm(quiet) / np.linalg.norm(loud)
+        self.assertAlmostEqual(20 * np.log10(ratio), -12.0, delta=0.05)
+        np.testing.assert_allclose(default, loud)
+
     def test_the_offset_rotates_the_injected_subframe(self):
         _, base = self.injected([EmulatedCell(2)])
         _, rot = self.injected([EmulatedCell(2, cfo_hz=1000.0)])
