@@ -1,0 +1,7 @@
+{
+ "name": "pathloss-n2-snr20",
+ "path_loss_exponent": 2.0,
+ "snr_db": 20,
+ "note": "Path loss exponent 2 with 20 dB noise.",
+ "seconds": 150
+}

@@ -1,0 +1,8 @@
+{
+ "name": "weak-cell3-m12",
+ "power_db": {
+  "3": -12
+ },
+ "note": "Cell 3 alone at -12 dB: almost no fixes.",
+ "seconds": 80
+}

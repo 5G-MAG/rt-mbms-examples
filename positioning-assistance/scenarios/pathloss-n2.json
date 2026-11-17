@@ -1,0 +1,6 @@
+{
+ "name": "pathloss-n2",
+ "path_loss_exponent": 2.0,
+ "note": "Received power from a path loss exponent of 2 (cells 2 to 4 at -6.6, -10.1 and -5.2 dB).",
+ "seconds": 150
+}

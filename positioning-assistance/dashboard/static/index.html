@@ -1,0 +1,171 @@
+<!--
+style.css and blue-bar.css: the shared 5G-MAG reference tools look and feel (design tokens, light/dark theming), copied unchanged from the other dashboards; Ubuntu font.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>5G Broadcast Positioning Emulator</title>
+<link rel="shortcut icon" type="image/png" href="/static/images/favicon.png">
+<script>
+  try { if (localStorage.getItem('5g-broadcast-positioning-emulator-theme') === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) {}
+</script>
+<link rel="stylesheet" href="/static/blue-bar.css"/>
+<link rel="stylesheet" href="/static/style.css"/>
+<style>
+  .main { max-width: 1240px; }
+  .tab-nav { flex-wrap: wrap; justify-content: center; }
+  .tab-panel[hidden] { display: none; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+  table.grid th, table.grid td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.grid th { color: var(--text-3); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.grid td.num, table.grid th.num { text-align: right; }
+  table.grid tr.row { cursor: pointer; }
+  table.grid tr.row:hover td { background: rgba(0,160,210,0.08); }
+  table.grid tr.sel td { background: rgba(0,160,210,0.14); }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 0.7rem; margin-bottom: 0.9rem; }
+  .stat-tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.8rem; }
+  .stat-tile .label { font-size: 0.72rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .stat-tile .val { font-size: 1.15rem; font-weight: 700; color: var(--text); }
+  .stat-tile .sub { font-size: 0.74rem; color: var(--text-3); }
+  .note { font-size: 0.82rem; color: var(--text-2); margin: 0.3rem 0 0.8rem; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; }
+  .grid2 .wide { grid-column: 1 / -1; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.8rem; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 0.8rem; }
+  .pill { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 4px 14px; font-size: 0.84rem; color: var(--text-3); }
+  .pill.active { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+  .pill.done { color: var(--success); border-color: var(--success); }
+  .bar { height: 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin: 0.4rem 0 0.9rem; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width 0.25s; }
+  .row-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin-top: 0.4rem; }
+  .plot { width: 100%; height: auto; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; color: var(--text-3); }
+  .plot text { fill: currentColor; font-size: 11px; font-family: inherit; }
+  pre.log { white-space: pre-wrap; font-size: 0.86rem; line-height: 1.5; height: 460px; max-height: 70vh; overflow: auto; margin: 0; }
+  h3.sec { font-size: 0.9rem; margin: 1.2rem 0 0.5rem; color: var(--text); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.78rem; margin-top: 0.4rem; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  @media (max-width: 520px) { .blue-bar { padding: 0 16px; justify-content: space-between; } .blue-bar-logo img { height: 40px; } .blue-bar-title { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="blue-bar">
+  <div class="blue-bar-logo"><img src="/static/images/5gmag.png" alt="5G-MAG logo"></div>
+  <div class="blue-bar-title">5G Broadcast Positioning Emulator</div>
+  <div class="blue-bar-actions">
+    <button id="theme-toggle" class="blue-bar-btn" type="button" aria-pressed="false">&#9790;&nbsp;Dark mode</button>
+  </div>
+</header>
+
+<header class="header">
+  <nav class="tab-nav" role="tablist">
+    <button class="tab-btn active" data-tab="scenario" type="button" role="tab">Scenario</button>
+    <button class="tab-btn" data-tab="live" type="button" role="tab"><span class="tab-dot" id="liveDot"></span>Live run</button>
+    <button class="tab-btn" data-tab="results" type="button" role="tab">Results</button>
+  </nav>
+</header>
+
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<main class="main">
+  <div class="alert-banner" id="platformBanner" hidden></div>
+
+  <!-- Scenario -->
+  <section class="tab-panel" id="tab-scenario">
+    <div class="card">
+      <div class="card-title">Scenario</div>
+      <div class="grid3">
+        <div class="form-row"><label class="form-label" for="preset">Preset</label><select id="preset"></select></div>
+        <div class="form-row"><label class="form-label" for="f-name">Name</label><input type="text" id="f-name"></div>
+        <div class="form-row"><label class="form-label" for="f-seconds">UE duration (s)</label><input type="number" id="f-seconds" min="20" max="600"></div>
+      </div>
+      <div class="note" id="presetNote"></div>
+
+      <h3 class="sec">Layout</h3>
+      <div class="note">Drag a cell or the UE; drag the background to pan; scroll to zoom from metres to kilometres. Positions are plain metres from an arbitrary origin: no map data and no real coordinates are used. The fields below are in metres.</div>
+      <svg class="plot" id="layoutMap" viewBox="0 0 1100 580" style="touch-action:none;cursor:default"></svg>
+      <div class="row-actions" style="margin-bottom:.4rem">
+        <label style="font-size:.84rem"><input type="checkbox" id="snap" style="width:auto" checked> Snap to a tenth of the grid</label>
+        <button class="btn btn-ghost btn-sm" id="zoomIn" type="button" title="Zoom in">+</button><button class="btn btn-ghost btn-sm" id="zoomOut" type="button" title="Zoom out">&minus;</button>
+        <button class="btn btn-ghost btn-sm" id="fitBtn" type="button">Fit view</button>
+        <span class="note" style="margin:0" id="mapHint"></span>
+      </div>
+
+      <h3 class="sec">UE true position (m, east / north / up)</h3>
+      <div class="grid3">
+        <div class="form-row"><input type="number" id="ue-0" step="any"></div>
+        <div class="form-row"><input type="number" id="ue-1" step="any"></div>
+        <div class="form-row"><input type="number" id="ue-2" step="any"></div>
+      </div>
+
+      <h3 class="sec">Cells</h3>
+      <table class="grid" id="cellTable">
+        <thead><tr><th>Cell</th><th class="num">East (m)</th><th class="num">North (m)</th><th class="num">Up (m)</th><th class="num">RTD base (ns)</th><th class="num">RTD drift (ns/s)</th><th class="num">Power (dB)</th><th class="num">Carrier offset (Hz)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="form-hint">Cell 1 is the reference cell: the one the transmitter really sends, and the one every time difference is measured against. Cells 2 to 4 are emulated by the rig. Leave Power empty to use the path loss model or the lab default of -6 dB.</div>
+
+      <h3 class="sec">Channel and document</h3>
+      <div class="grid3">
+        <div class="form-row"><label class="form-label" for="f-ple">Path loss exponent</label><input type="number" id="f-ple" step="0.1" min="0.1" placeholder="none"></div>
+        <div class="form-row"><label class="form-label" for="f-snr">Noise, Es/N0 (dB)</label><input type="number" id="f-snr" step="1" placeholder="none"></div>
+        <div class="form-row"><label class="form-label" for="f-mon">Monitor timestamp noise (ns)</label><input type="number" id="f-mon" step="1" min="1"></div>
+        <div class="form-row"><label class="form-label" for="f-cp">Cyclic prefix</label><select id="f-cp"><option>extended</option><option>normal</option></select></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Received power at the UE, as the run will use it</div>
+      <div class="stat-grid" id="powerTiles"></div>
+      <div class="status-line" id="checkLine"></div>
+      <div class="row-actions">
+        <button class="btn btn-primary" id="startBtn" type="button">Start run</button>
+        <button class="btn btn-ghost" id="jsonBtn" type="button">Show scenario file</button>
+      </div>
+      <pre id="jsonBox" hidden style="margin-top:0.8rem;"></pre>
+    </div>
+  </section>
+
+  <!-- Live run -->
+  <section class="tab-panel" id="tab-live" hidden>
+    <div class="card">
+      <div class="card-title">Run</div>
+      <div class="pills" id="phasePills">
+        <span class="pill" data-p="starting">Starting demo</span><span class="pill" data-p="warmup">Warmup</span>
+        <span class="pill" data-p="measuring">Measuring</span><span class="pill" data-p="stopping">Stopping demo</span><span class="pill" data-p="done">Done</span>
+      </div>
+      <div class="bar"><div id="progress"></div></div>
+      <div class="stat-grid" id="liveTiles"></div>
+      <div class="row-actions">
+        <button class="btn btn-danger" id="stopBtn" type="button" disabled>Stop</button>
+        <span class="note" id="liveName" style="margin:0"></span>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card"><div class="card-title">East and north error of every fix</div><svg class="plot" id="plotScatter" viewBox="0 0 460 360"></svg></div>
+      <div class="card"><div class="card-title">Error against time</div><svg class="plot" id="plotTime" viewBox="0 0 460 360"></svg></div>
+      <div class="card"><div class="card-title">Time-difference error per cell</div><svg class="plot" id="plotRstd" viewBox="0 0 460 360"></svg></div>
+      <div class="card wide"><div class="card-title">Run log</div><pre class="log" id="liveLog"></pre></div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section class="tab-panel" id="tab-results" hidden>
+    <div class="card">
+      <div class="card-title">Stored runs</div>
+      <table class="grid" id="resTable">
+        <thead><tr><th></th><th>Scenario</th><th>Run</th><th class="num">Fixes</th><th class="num">rms (m)</th><th class="num">95 % (m)</th><th class="num">Claimed (m)</th><th class="num">Real / claimed</th><th>Refusals</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row-actions"><button class="btn btn-primary btn-sm" id="compareBtn" type="button">Compare selected</button><button class="btn btn-ghost btn-sm" id="reportBtn" type="button">Open report page</button><button class="btn btn-ghost btn-sm" id="clearBtn" type="button">Clear</button><span class="note" style="margin:0">Click a row for its detail.</span></div>
+    </div>
+    <div class="card" id="cmpCard" hidden><div class="card-title">Distribution of the error</div><svg class="plot" id="plotCdf" viewBox="0 0 640 360"></svg><div class="legend" id="cdfLegend"></div></div>
+    <div id="detail"></div>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -62,6 +62,16 @@ whether the solver's claimed accuracy holds. What it does not: field accuracy (c
 accuracy over an area (one run is one position), or a fixed monitor calibration error (only the monitor's timestamp noise is a parameter). Results of the first twelve runs
 are in the Standards2Deployments register under `projects/mbms/evidence/2026-11-17-accuracy-simulator`.
 
+#### Dashboard (5G Broadcast Positioning Emulator)
+
+`python3 -m bps.dashboard [--port N]` serves a page at `http://127.0.0.1:8765/` (the first free port from there; standard library only) for the scenario runner, in the look of the
+other 5G-MAG dashboards. **Scenario**: a preset (the files in `scenarios/`) or your own values, with a layout canvas to drag the four cells and the UE (plain metres, zoom from metres
+to kilometres, no map data), the received power per cell as the run will use it, and Start run. **Live run**: the phase, the fixes as the UE records them, the error plots and the run
+log, with a Stop button that brings the demo down. **Results**: the stored runs, one run's detail, a comparison of several, and a report page. One run at a time; a run is refused
+while the MBS demo (open5gs, srsue, mbs-client) or another positioning demo is up, because they share the radio ports and the memory. The server binds to the loopback address,
+answers only requests for that address, takes changes only as JSON from its own page, and never uses a path the page sends. A run goes on if the server is stopped.
+The results and the scenarios the page started are in `results/scenarios/` (not tracked). Not in the dashboard yet: running a list of scenarios one after another (a sweep).
+
 Verification: 205 unit tests (`python3 -m unittest discover -s tests`, about 60 s), and reset-rig runs of the demo. With the time differences from the
 formula: 30 fixes, rmse 8.9 m against 10.0 m claimed. From PRS waveforms (three runs, 25 fixes each, same random seed so the same noise): rmse 10.3, 10.3 and 9.9 m against 11.9 m claimed, worst
 fix 2.02 claimed sigma. The PRS path uses the

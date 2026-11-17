@@ -1,0 +1,6 @@
+{
+ "name": "noise-25db",
+ "snr_db": 25,
+ "note": "White noise at Es/N0 25 dB.",
+ "seconds": 80
+}

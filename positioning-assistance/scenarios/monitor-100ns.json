@@ -1,0 +1,6 @@
+{
+ "name": "monitor-100ns",
+ "monitor_noise_ns": 100,
+ "note": "The monitoring receiver's timestamp noise is 100 ns instead of 20, so the RTD in the document is less accurate.",
+ "seconds": 80
+}

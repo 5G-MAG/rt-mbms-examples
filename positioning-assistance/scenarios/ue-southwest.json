@@ -1,0 +1,10 @@
+{
+ "name": "ue-southwest",
+ "ue_enu": [
+  -8000,
+  -12000,
+  1.5
+ ],
+ "note": "The UE is at -8000 / -12000 m, outside the four cells.",
+ "seconds": 80
+}

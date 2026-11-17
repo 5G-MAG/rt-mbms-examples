@@ -1,0 +1,5 @@
+{
+ "name": "lab-default",
+ "note": "The lab's own geometry: four cells, the UE at 2500 / -3200 m, cells 2 to 4 at -6 dB, no noise.",
+ "seconds": 150
+}

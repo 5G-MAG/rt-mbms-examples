@@ -1,0 +1,8 @@
+{
+ "name": "cfo-cell3-150hz",
+ "cfo_hz": {
+  "3": 150
+ },
+ "note": "Cell 3 has a 150 Hz carrier offset against the real cell.",
+ "seconds": 80
+}

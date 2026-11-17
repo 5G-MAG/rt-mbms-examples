@@ -1,0 +1,6 @@
+{
+ "name": "pathloss-n3",
+ "path_loss_exponent": 3.0,
+ "note": "Path loss exponent 3: cell 3 is at -15 dB and the modem gives no usable measurement.",
+ "seconds": 80
+}
