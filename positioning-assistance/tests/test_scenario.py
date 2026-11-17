@@ -1,10 +1,13 @@
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -144,6 +147,80 @@ class Report(unittest.TestCase):
 
     def test_names_are_escaped(self):
         self.assertNotIn("<script>", report.page([self.result("<script>x</script>", [1.0])]))
+
+
+class RunProgress(unittest.TestCase):
+    """The runner's status file and its behaviour when it fails or is stopped, with the demo scripts replaced by a recorder (the platform is not started)."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.scn = write({"name": "t"})
+        self.status = self.dir / "status.json"
+        self.calls, self.phases = [], []
+        real_set = run.Status.set
+
+        def record(status, phase, **extra):
+            self.phases.append(phase)
+            real_set(status, phase, **extra)
+
+        patches = [mock.patch.object(run.Status, "set", record), mock.patch.object(run.time, "sleep", lambda s: None)]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def sh(self, outcome=None):
+        def fake(cmd, env, cwd, log, timeout=None):
+            self.calls.append(cmd[:2])
+            if outcome and cmd[0] == outcome[0]:
+                if isinstance(outcome[1], BaseException):
+                    raise outcome[1]
+                return outcome[1]
+            return 0
+        return mock.patch.object(run, "_sh", fake)
+
+    def test_a_run_goes_through_the_phases_and_ends_done_with_its_result(self):
+        with self.sh():
+            path = run.run(self.scn, self.dir / "out", 30, 1, str(self.status))
+        self.assertEqual(self.phases, ["starting", "warmup", "measuring", "stopping", "done"])
+        st = json.loads(self.status.read_text())
+        self.assertEqual((st["phase"], st["result"], st["name"], st["seconds"]), ("done", str(path), "t", 30))
+        self.assertTrue(path.exists() and st["records"].endswith(".records.jsonl"))
+        self.assertEqual(self.calls[0], ["./demo", "down"])
+        self.assertEqual(self.calls[-1], ["./demo", "down"])
+
+    def test_a_demo_that_does_not_start_is_a_failed_run_and_the_demo_is_brought_down(self):
+        fail_up = mock.patch.object(run, "_sh", lambda cmd, env, cwd, log, timeout=None: (self.calls.append(cmd[:2]), 1 if cmd[:2] == ["./demo", "up"] else 0)[1])
+        with fail_up:
+            with self.assertRaises(RuntimeError):
+                run.run(self.scn, self.dir / "out", 30, 1, str(self.status))
+        st = json.loads(self.status.read_text())
+        self.assertEqual(st["phase"], "failed")
+        self.assertIn("demo up failed", st["error"])
+        self.assertEqual(self.calls[-1], ["./demo", "down"])
+
+    def test_a_stop_request_ends_the_run_stopped_and_brings_the_demo_down(self):
+        with self.sh(("./10-run-positioning-ue.sh", run.Stopped())):
+            with self.assertRaises(run.Stopped):
+                run.run(self.scn, self.dir / "out", 30, 1, str(self.status))
+        self.assertEqual(json.loads(self.status.read_text())["phase"], "stopped")
+        self.assertEqual(self.calls[-1], ["./demo", "down"])
+        self.assertFalse(list((self.dir / "out").glob("*.json")))     # no result for a run that was cut
+
+    def test_what_an_interrupted_command_started_is_ended_with_it(self):
+        pidfile = self.dir / "pid"
+        with self.assertRaises(subprocess.TimeoutExpired):
+            run._sh(["bash", "-c", f"sleep 60 & echo $! > {pidfile}; wait"], dict(os.environ), self.dir, subprocess.DEVNULL, timeout=1)
+        pid = int(pidfile.read_text())
+
+        def alive() -> bool:
+            try:
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"      # a zombie has ended
+            except OSError:
+                return False
+        deadline = time.time() + 3
+        while alive() and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(alive())
 
 
 if __name__ == "__main__":

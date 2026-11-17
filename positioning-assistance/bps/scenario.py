@@ -32,6 +32,7 @@ EMULATED = (2, 3, 4)
 @dataclass
 class Scenario:
     name: str = "lab"
+    note: str = ""                                   # free text for whoever reads the scenario; not used by a run
     ue_enu: Optional[list] = None
     cells_enu: Optional[list] = None
     rtd: dict = field(default_factory=dict)          # {cell: [base_ns, drift_ns_per_s]}

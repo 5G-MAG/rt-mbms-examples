@@ -43,3 +43,6 @@ flute-ffmpeg/watchfolder/
 # Machine-specific overrides, committed beside them as local.env.example.
 scripts/*/local.env
 scripts/tmux/local.env
+
+# results of the scenario runner (bps.scenario_run, bps.dashboard)
+positioning-assistance/results/scenarios/

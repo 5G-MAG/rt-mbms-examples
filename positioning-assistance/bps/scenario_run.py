@@ -15,6 +15,7 @@ import argparse
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -87,11 +88,49 @@ def summarise(records: list[dict], modem_stats: dict | None = None) -> dict:
     return out
 
 
+class Stopped(Exception):
+    """Raised in the runner when it is asked to stop (SIGTERM); the demo is brought down on the way out."""
+
+
+ACTIVE = ("starting", "warmup", "measuring", "stopping")
+FINAL = ("done", "failed", "stopped")
+
+
+class Status:
+    """The progress of a run for whoever watches it (the dashboard): one small JSON file, replaced atomically at every phase change.
+
+    phase is one of starting, warmup, measuring, stopping (a run in progress) and done, failed, stopped (it ended); `pid` is the runner's, which leads its own process group.
+    """
+
+    def __init__(self, path: str | None, name: str, seconds: int, log: str, records: str):
+        self.path = Path(path) if path else None
+        self.data = {"pid": os.getpid(), "name": name, "seconds": seconds, "phase": "starting", "started": time.time(), "updated": time.time(),
+                     "log": log, "records": records, "result": None, "error": None}
+        self.set("starting")
+
+    def set(self, phase: str, **extra) -> None:
+        self.data.update(extra, phase=phase, updated=time.time())
+        if self.path is not None:
+            tmp = self.path.with_name(self.path.name + ".tmp")
+            tmp.write_text(json.dumps(self.data))
+            os.replace(tmp, self.path)
+
+
 def _sh(cmd: list[str], env: dict, cwd: Path, log, timeout: int | None = None) -> int:
-    return subprocess.run(cmd, env=env, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, timeout=timeout).returncode
+    """Runs a command in a process group of its own and, if it is interrupted (a stop request, a timeout), ends the whole group, so that nothing it started is left running."""
+    p = subprocess.Popen(cmd, env=env, cwd=cwd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        return p.wait(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.wait()
+        raise
 
 
-def run(scenario_path: str, out_dir: Path, seconds: int | None = None, warmup: int = 20) -> Path:
+def run(scenario_path: str, out_dir: Path, seconds: int | None = None, warmup: int = 20, status_file: str | None = None) -> Path:
     s = sc.load(scenario_path)
     seconds = seconds or s.seconds
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -99,36 +138,55 @@ def run(scenario_path: str, out_dir: Path, seconds: int | None = None, warmup: i
     base = out_dir / f"{s.name}-{stamp}"
     env = environment(s, scenario_path)
     env["POS_UE_JSON"] = str(base) + ".records.jsonl"
-    log = open(str(base) + ".log", "w")
+    log = open(str(base) + ".log", "w")        # closed on every path out of the try below
     modem_stats = None
+    status = Status(status_file, s.name, seconds, str(base) + ".log", env["POS_UE_JSON"])
     try:
         _sh(["./demo", "down"], env, ROOT, log)
         if _sh(["./demo", "up"], env, ROOT, log, timeout=900) != 0:
             raise RuntimeError(f"demo up failed, see {base}.log")
         if _sh(["./09-start-positioning.sh"], env, DEMO_DIR, log, timeout=300) != 0:
             raise RuntimeError(f"positioning did not start, see {base}.log")
+        status.set("warmup")
         time.sleep(warmup)
+        status.set("measuring")
         _sh(["./10-run-positioning-ue.sh", str(seconds)], env, DEMO_DIR, log, timeout=seconds + 120)
         try:
             import urllib.request
             modem_stats = json.load(urllib.request.urlopen("http://10.80.0.2:3010/modem-api/prs", timeout=5)).get("stats")
         except (OSError, ValueError):
             modem_stats = None
-    finally:
+    except (Stopped, KeyboardInterrupt):
+        status.set("stopping")
         _sh(["./demo", "down"], env, ROOT, log)
         log.close()
+        status.set("stopped")
+        raise
+    except BaseException as e:
+        status.set("stopping")
+        _sh(["./demo", "down"], env, ROOT, log)
+        log.close()
+        status.set("failed", error=str(e))
+        raise
+    status.set("stopping")
+    _sh(["./demo", "down"], env, ROOT, log)
+    log.close()
     records = []
     if os.path.exists(env["POS_UE_JSON"]):
-        records = [json.loads(line) for line in open(env["POS_UE_JSON"]) if line.strip()]
+        with open(env["POS_UE_JSON"]) as fh:
+            records = [json.loads(line) for line in fh if line.strip()]
     rev = {}
     for name, path in (("examples", ROOT), ("modem", ROOT.parent / "rt-mbms-modem"), ("tx", ROOT.parent / "rt-mbms-tx")):
         r = subprocess.run(["git", "-C", str(path), "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
         rev[name] = r.stdout.strip() or "unknown"
-    result = {"scenario": json.load(open(scenario_path)), "name": s.name, "started": stamp, "ue_seconds": seconds, "revisions": rev,
+    with open(scenario_path) as fh:
+        raw_scenario = json.load(fh)
+    result = {"scenario": raw_scenario, "name": s.name, "started": stamp, "ue_seconds": seconds, "revisions": rev,
               "cells_enu": resolve(s)[0], "ue_enu": resolve(s)[1], "received_power_db": resolve(s)[2],
               "summary": summarise(records, modem_stats), "records": [r for r in records if r["kind"] in ("fix", "no_fix")]}
     path = Path(str(base) + ".json")
     path.write_text(json.dumps(result, indent=1))
+    status.set("done", result=str(path))
     return path
 
 
@@ -137,10 +195,21 @@ def main() -> None:
     ap.add_argument("scenario")
     ap.add_argument("--out", default=str(ROOT / "positioning-assistance" / "results" / "scenarios"))
     ap.add_argument("--seconds", type=int)
+    ap.add_argument("--status-file", help="write the run's progress (phase, pid, paths) to this JSON file as it goes")
     ap.add_argument("--warmup", type=int, default=20, help="seconds between the publisher's start and the UE's (the document and the modem's lock need them)")
     a = ap.parse_args()
-    path = run(a.scenario, Path(a.out), a.seconds, a.warmup)
-    s = json.load(open(path))["summary"]
+
+    def stop(_signum, _frame):
+        raise Stopped()
+
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        path = run(a.scenario, Path(a.out), a.seconds, a.warmup, a.status_file)
+    except Stopped:
+        print("stopped; the demo was brought down")
+        sys.exit(143)
+    with open(path) as fh:
+        s = json.load(fh)["summary"]
     print(f"{path}\nfixes {s['fixes']}  rms {s.get('rms_m', float('nan')):.1f} m  p95 {s.get('p95_m', float('nan')):.1f} m  claimed {s.get('claimed_mean_m', float('nan')):.1f} m  refusals {s['refusals']}")
 
 
