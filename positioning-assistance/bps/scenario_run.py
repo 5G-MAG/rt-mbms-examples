@@ -27,6 +27,7 @@ from . import scenario as sc
 
 ROOT = Path(__file__).resolve().parents[2]            # rt-mbms-examples
 DEMO_DIR = ROOT / "scripts" / "mbms-broadcast-demo"
+START_TIMEOUT = 120          # s the UE waits for its first fix: the document and the first PRS measurement take their time to arrive
 STATE_HINT = Path.home() / ".local" / "state" / "mbms-broadcast-tutorial"
 
 
@@ -42,7 +43,7 @@ def environment(s: sc.Scenario, scenario_path: str, base: dict | None = None) ->
     """The environment the demo scripts, the publisher, the mixer and the UE run in for this scenario."""
     _, _, powers = resolve(s)
     env = dict(base if base is not None else os.environ)
-    env.update({"BPS_SCENARIO": os.path.abspath(scenario_path), "POS_RIG": "1", "POS_MEASURE": "modem", "POS_RIG_CP": s.cp,
+    env.update({"BPS_SCENARIO": os.path.abspath(scenario_path), "POS_RIG": "1", "POS_MEASURE": "modem", "POS_UE_START_TIMEOUT": str(START_TIMEOUT), "POS_RIG_CP": s.cp,
                 "POS_CELL_POWER": " ".join(f"{c}={powers[c]:.2f}" for c in sc.EMULATED)})
     if s.snr_db is not None:
         env["POS_RIG_SNR_DB"] = str(s.snr_db)
@@ -55,16 +56,37 @@ def _percentile(values: list[float], q: float) -> float:
     return float(np.percentile(values, q)) if values else float("nan")
 
 
+def split_refusals(records: list[dict]) -> tuple[dict, dict]:
+    """The refusals before the first fix (the start-up: the document and the first PRS measurement are on their way) and those after it (the run's own).
+    A run without a fix has only start-up refusals: they say why it never got one."""
+    startup: dict[str, int] = {}
+    later: dict[str, int] = {}
+    seen_fix = False
+    for r in records:
+        if r["kind"] == "fix":
+            seen_fix = True
+        elif r["kind"] == "no_fix":
+            key = r["reason"].split(" (")[0]
+            table = later if seen_fix else startup
+            table[key] = table.get(key, 0) + 1
+    return startup, later
+
+
+def first_fix_seconds(records: list[dict]) -> float | None:
+    """Seconds from the UE's start (its `start` record, else its first record) to its first fix; None if it had none or the records carry no times."""
+    fix = next((r for r in records if r["kind"] == "fix"), None)
+    first = next((r for r in records if r["kind"] == "start"), records[0] if records else None)
+    if fix is None or first is None or "t" not in fix or "t" not in first:
+        return None
+    return float(fix["t"] - first["t"])
+
+
 def summarise(records: list[dict], modem_stats: dict | None = None) -> dict:
     """Accuracy figures from the UE's records (one JSON object per fix, refusal or document)."""
     fixes = [r for r in records if r["kind"] == "fix"]
-    refusals: dict[str, int] = {}
-    for r in records:
-        if r["kind"] == "no_fix":
-            key = r["reason"].split(" (")[0]
-            refusals[key] = refusals.get(key, 0) + 1
+    startup, refusals = split_refusals(records)
     errs = [f["error_m"] for f in fixes]
-    out = {"fixes": len(fixes), "refusals": refusals, "documents": sum(1 for r in records if r["kind"] == "document" and r["verdict"] == "accepted")}
+    out = {"fixes": len(fixes), "first_fix_s": first_fix_seconds(records), "startup_refusals": startup, "refusals": refusals, "documents": sum(1 for r in records if r["kind"] == "document" and r["verdict"] == "accepted")}
     if errs:
         e = np.array(errs)
         east = np.array([f["east_err_m"] for f in fixes])   # the fix against the true position: east and north error in metres
@@ -150,7 +172,7 @@ def run(scenario_path: str, out_dir: Path, seconds: int | None = None, warmup: i
         status.set("warmup")
         time.sleep(warmup)
         status.set("measuring")
-        _sh(["./10-run-positioning-ue.sh", str(seconds)], env, DEMO_DIR, log, timeout=seconds + 120)
+        _sh(["./10-run-positioning-ue.sh", str(seconds)], env, DEMO_DIR, log, timeout=START_TIMEOUT + seconds + 120)
         try:
             import urllib.request
             modem_stats = json.load(urllib.request.urlopen("http://10.80.0.2:3010/modem-api/prs", timeout=5)).get("stats")

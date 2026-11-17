@@ -123,22 +123,33 @@ def cmd_publish(a) -> None:
         time.sleep(a.interval)
 
 
+def ue_finished(now: float, t_start: float, first_fix_t: Optional[float], seconds: float, start_timeout: float) -> bool:
+    """Whether the UE is done: `seconds` from its start; or, with a start timeout, `seconds` from its first fix, and no later than the timeout if it has none."""
+    if start_timeout <= 0:
+        return now >= t_start + seconds
+    return now >= (t_start + start_timeout if first_fix_t is None else first_fix_t + seconds)
+
+
 def cmd_ue(a) -> None:
     world = lab.World(epoch_gps_ns=a.world_epoch_gps_ns, seed=2)
     rng = np.random.default_rng(3)
     clock, store = NetworkClock(), AssistanceStore()
     positioner = Positioner(clock, store, height_m=lab.UE_ENU[2] + lab.ORIGIN[2])
     modem_prs = ModemPrs(a.modem_url.rsplit("/", 1)[0], ratio_min=a.prs_ratio_min) if a.measure == "modem" else None
-    end = time.time() + a.seconds
+    t_start, first_fix_t = time.time(), None
     last_doc = None
     record = open(a.json_out, "w") if a.json_out else None   # one JSON object per line: a fix, a refusal or a document, for the scenario runner
+
+    def finished() -> bool:
+        return ue_finished(time.time(), t_start, first_fix_t, a.seconds, a.start_timeout)
 
     def note(kind: str, **fields) -> None:
         if record is not None:
             record.write(json.dumps({"t": time.time(), "kind": kind, **fields}) + "\n")
             record.flush()
+    note("start", seconds=a.seconds, start_timeout=a.start_timeout)
     print(f"{'time':>8} {'doc':>11} {'net time - host (ms)':>26} {'error m':>8} {'claimed m':>10}", flush=True)
-    while time.time() < end:
+    while not finished():
         try:
             raw = open(a.doc_file, "rb").read() if a.doc_file else _fetch(a.doc_url)
             if raw != last_doc:
@@ -172,6 +183,9 @@ def cmd_ue(a) -> None:
                 print(f"{time.strftime('%H:%M:%S')} no fix: {e}", flush=True)
                 note("no_fix", reason=str(e))
             else:
+                if first_fix_t is None:
+                    first_fix_t = time.time()
+                    print(f"{time.strftime('%H:%M:%S')} first fix, {first_fix_t - t_start:.0f} s after the start", flush=True)
                 err = np.linalg.norm(geo.lla_to_enu(lab.ORIGIN, (fix.latitude_deg, fix.longitude_deg, lab.UE_ENU[2] + lab.ORIGIN[2]))[:2]
                                      - lab.UE_ENU[:2])
                 host_ms = (t_net - lab.host_gps_ns(a.leap_seconds)) / 1e6
@@ -183,6 +197,9 @@ def cmd_ue(a) -> None:
                          version=int(fix.document_version), cells=sorted(int(c) for c in m.rstd_s), rstd_error_ns=rstd_error)
                 print(f"{time.strftime('%H:%M:%S'):>8} v{fix.document_version:>10} {host_ms:>26.1f} {err:>8.1f} {fix.horizontal_sigma_m:>10.1f}", flush=True)
         time.sleep(a.interval)
+    if first_fix_t is None:
+        print(f"{time.strftime('%H:%M:%S')} no fix within {time.time() - t_start:.0f} s", flush=True)
+    note("end", first_fix_s=None if first_fix_t is None else first_fix_t - t_start)
 
 
 def cmd_rig(a) -> None:
@@ -302,7 +319,8 @@ def main() -> None:
                    help="with --measure prs: signal to noise ratio per sample of each cell (default 0)")
     u.add_argument("--interval", type=float, default=2.0)
     u.add_argument("--json-out", help="write every fix, refusal and document to this file, one JSON object per line (for bps.scenario_run)")
-    u.add_argument("--seconds", type=float, default=60.0)
+    u.add_argument("--seconds", type=float, default=60.0, help="how long to run (from the first fix when --start-timeout is set)")
+    u.add_argument("--start-timeout", type=float, default=0.0, help="wait up to this long for the first fix (the document and the first PRS measurement take their time to arrive) and run --seconds from it; 0: run --seconds from the start")
     u.add_argument("--leap-seconds", type=int, default=18)
     r = sub.add_parser("rig", help="mix emulated neighbouring cells into the transmitter's IQ stream")
     r.add_argument("--input", default="tcp://127.0.0.1:2002", help="the transmitter's ZMQ output (its tx_port)")

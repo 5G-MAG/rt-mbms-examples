@@ -12,5 +12,5 @@ env PYTHONPATH="$BPS_DIR" python3 -u -m bps.apps ue \
     --doc-url "$POS_DOC_URL" \
     --modem-url "http://$RX_ADDR:$MODEM_API_PORT/modem-api/sib_info" \
     --world-epoch-gps-ns "$(cat "$STATE_DIR/pos_world_epoch")" \
-    --measure "$POS_MEASURE" ${POS_SNR_DB:+--snr-db "$POS_SNR_DB"} ${POS_UE_JSON:+--json-out "$POS_UE_JSON"} \
+    --measure "$POS_MEASURE" ${POS_SNR_DB:+--snr-db "$POS_SNR_DB"} ${POS_UE_JSON:+--json-out "$POS_UE_JSON"} ${POS_UE_START_TIMEOUT:+--start-timeout "$POS_UE_START_TIMEOUT"} \
     --leap-seconds "$LEAP_SECONDS" --seconds "${1:-60}"

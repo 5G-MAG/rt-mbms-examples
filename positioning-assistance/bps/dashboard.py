@@ -186,7 +186,7 @@ class Dashboard:
     def fixes(self, after: int = 0) -> dict:
         """The fixes the UE has recorded so far, from the `after`-th on, with the refusals and documents counted."""
         path = self._status().get("records")
-        out = {"fixes": [], "n": 0, "documents": 0, "refusals": {}, "last_refusal": None}
+        out = {"fixes": [], "n": 0, "documents": 0, "first_fix_s": None, "startup_refusals": {}, "refusals": {}, "last_refusal": None}
         if not path or not os.path.exists(path):
             return out
         recs = []
@@ -203,11 +203,10 @@ class Dashboard:
         out["n"] = len(fixes)
         out["fixes"] = [fix_row(r, t0) for r in fixes[max(after, 0):]]
         out["documents"] = sum(1 for r in recs if r["kind"] == "document" and r.get("verdict") == "accepted")
-        for r in recs:
-            if r["kind"] == "no_fix":
-                key = r["reason"].split(" (")[0]
-                out["refusals"][key] = out["refusals"].get(key, 0) + 1
-                out["last_refusal"] = key
+        out["startup_refusals"], out["refusals"] = scenario_run.split_refusals(recs)
+        out["first_fix_s"] = scenario_run.first_fix_seconds(recs)
+        reasons = [r["reason"].split(" (")[0] for r in recs if r["kind"] == "no_fix"]
+        out["last_refusal"] = reasons[-1] if reasons else None
         return out
 
     def log_tail(self, lines: int = 200) -> str:

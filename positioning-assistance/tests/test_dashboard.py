@@ -178,7 +178,8 @@ class Running(Base):
         self.assertEqual(self.start()[0], 409)                                                    # one run at a time
         first = self.wait(lambda: (lambda d: d if d["n"] >= 1 else None)(self.req("GET", "/api/run/fixes?after=0")[1]))
         self.assertEqual(first["documents"], 1)
-        self.assertEqual(first["refusals"], {"waiting for a PRS measurement": 1})
+        self.assertEqual((first["startup_refusals"], first["refusals"]), ({"waiting for a PRS measurement": 1}, {}))      # before the first fix: the start-up
+        self.assertIsNotNone(first["first_fix_s"])
         row = first["fixes"][0]
         self.assertEqual((row["err"], row["east"], row["north"], row["rstd"]), (3.0, 1.0, 2.0, {"2": 1.0, "3": -1.0, "4": 0.5}))
         self.assertGreaterEqual(row["t"], 0)

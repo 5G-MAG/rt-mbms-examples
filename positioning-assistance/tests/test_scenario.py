@@ -100,10 +100,35 @@ class Summary(unittest.TestCase):
         self.assertEqual(s["cells_used"], {"2 3 4": 2, "2 3": 1})
         self.assertEqual(s["modem"], {"windows": 7})
 
+    def test_the_start_up_is_told_apart_from_the_refusals_of_the_run(self):
+        recs = [{"kind": "start", "t": 100.0}, {"kind": "no_fix", "t": 101.0, "reason": "no assistance document received"},
+                {"kind": "no_fix", "t": 103.0, "reason": "waiting for a PRS measurement (too few cells)"}, self.fix(3.0, 1.0, 2.0) | {"t": 105.0},
+                {"kind": "no_fix", "t": 107.0, "reason": "waiting for a PRS measurement"}]
+        s = run.summarise(recs)
+        self.assertEqual(s["first_fix_s"], 5.0)
+        self.assertEqual(s["startup_refusals"], {"no assistance document received": 1, "waiting for a PRS measurement": 1})
+        self.assertEqual(s["refusals"], {"waiting for a PRS measurement": 1})
+
+    def test_a_run_without_a_fix_has_only_start_up_refusals_which_say_why(self):
+        recs = [{"kind": "start", "t": 1.0}] + [{"kind": "no_fix", "t": 2.0 + k, "reason": "waiting for a PRS measurement"} for k in range(5)]
+        s = run.summarise(recs)
+        self.assertEqual((s["fixes"], s["first_fix_s"], s["refusals"], s["startup_refusals"]), (0, None, {}, {"waiting for a PRS measurement": 5}))
+
     def test_no_fixes_is_a_summary_not_an_error(self):
         s = run.summarise([{"kind": "no_fix", "reason": "no assistance document received"}])
         self.assertEqual(s["fixes"], 0)
         self.assertNotIn("rms_m", s)
+
+
+class UeDuration(unittest.TestCase):
+    def test_the_duration_runs_from_the_first_fix_when_there_is_a_start_timeout(self):
+        from bps.apps import ue_finished as done
+        self.assertFalse(done(159, 100, None, 60, 0))                  # no timeout: 60 s from the start
+        self.assertTrue(done(160, 100, None, 60, 0))
+        self.assertFalse(done(150, 100, None, 60, 120))                # waiting for the first fix
+        self.assertTrue(done(220, 100, None, 60, 120))                 # none within the timeout: it ends
+        self.assertFalse(done(220, 100, 190, 60, 120))                 # a fix at 190 s: the 60 s run to 250 s, however late it came
+        self.assertTrue(done(250, 100, 190, 60, 120))
 
 
 class Report(unittest.TestCase):
@@ -144,6 +169,20 @@ class Report(unittest.TestCase):
         cx, cy = re.search(r'<circle cx="([\d.]+)" cy="([\d.]+)"', svg).groups()
         x0, y0 = re.search(r'd="M([\d.]+) ([\d.]+) h12', svg).groups()
         self.assertEqual((float(cx), float(cy)), (float(x0) + 6, float(y0)))
+
+    def test_the_summary_shows_the_first_fix_and_only_the_later_refusals(self):
+        a = self.result("a", [2.0, 3.0])
+        a["summary"].update(first_fix_s=34.0, startup_refusals={"no assistance document received": 16}, refusals={})
+        b = self.result("b", [])
+        b["summary"] = run.summarise([{"kind": "start", "t": 1.0}, {"kind": "no_fix", "t": 2.0, "reason": "waiting for a PRS measurement"}])
+        old = self.result("old", [2.0])
+        del old["summary"]["first_fix_s"], old["summary"]["startup_refusals"]
+        h = report.summary_table([a, b, old])
+        self.assertIn("34 s", h)
+        self.assertNotIn("no assistance document received: 16", h)           # that was the start-up
+        self.assertIn("no fix because: waiting for a PRS measurement: 1", h)
+        self.assertIn("waiting for a PRS measurement: 1", h)
+        self.assertIn("<td>old</td><td>-</td>", h)                           # the old result has no first-fix time to show
 
     def test_names_are_escaped(self):
         self.assertNotIn("<script>", report.page([self.result("<script>x</script>", [1.0])]))

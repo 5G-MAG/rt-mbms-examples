@@ -141,11 +141,18 @@ def claimed_plot(res: dict, colour: str) -> str:
 def summary_table(results: list[dict]) -> str:
     cols = [("fixes", "fixes", 0), ("rms_m", "rms (m)", 1), ("mean_m", "mean (m)", 1), ("p50_m", "median (m)", 1), ("p95_m", "95 % (m)", 1), ("max_m", "max (m)", 1),
             ("claimed_mean_m", "claimed (m)", 1), ("claimed_ratio", "real / claimed", 2)]
-    rows = ["<tr><th>scenario</th>" + "".join(f"<th>{h}</th>" for _, h, _ in cols) + "<th>refusals</th></tr>"]
+    rows = ["<tr><th>scenario</th><th>first fix after</th>" + "".join(f"<th>{h}</th>" for _, h, _ in cols) + "<th>refusals after the first fix</th></tr>"]
     for r in results:
         s = r["summary"]
-        refusals = ", ".join(f"{html.escape(k)}: {v}" for k, v in s["refusals"].items()) or "none"
-        rows.append(f"<tr><td>{html.escape(r['name'])}</td>" + "".join(f"<td>{_fmt(s.get(k), nd)}</td>" for k, _, nd in cols) + f"<td>{refusals}</td></tr>")
+        join = lambda d: ", ".join(f"{html.escape(k)}: {v}" for k, v in d.items())
+        if "first_fix_s" not in s:                 # a result from before the start-up was told apart: all its refusals in one count
+            first, refusals = "-", join(s["refusals"]) or "none"
+        elif s["fixes"] == 0:
+            first, refusals = "no fix", "no fix because: " + (join(s["startup_refusals"]) or "no record")
+        else:
+            first = "-" if s["first_fix_s"] is None else f"{s['first_fix_s']:.0f} s"
+            refusals = join(s["refusals"]) or "none"
+        rows.append(f"<tr><td>{html.escape(r['name'])}</td><td>{first}</td>" + "".join(f"<td>{_fmt(s.get(k), nd)}</td>" for k, _, nd in cols) + f"<td>{refusals}</td></tr>")
     return "<table>" + "".join(rows) + "</table>"
 
 

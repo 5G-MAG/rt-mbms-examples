@@ -270,9 +270,10 @@ function renderLive() {
   const f = liveFixes, errs = f.map(x => x.err), rms = errs.length ? Math.sqrt(errs.reduce((a, v) => a + v * v, 0) / errs.length) : null;
   const p95 = errs.length ? errs.slice().sort((a, b) => a - b)[Math.min(errs.length - 1, Math.floor(0.95 * errs.length))] : null, ratio = errs.length ? errs.reduce((a, v, i) => a + v / f[i].claimed, 0) / errs.length : null;
   const refusals = Object.values(liveInfo.refusals || {}).reduce((a, v) => a + v, 0), total = (RUN.seconds || 0) + 90;
+  const fixSub = f.length ? ('first fix after ' + fmt(liveInfo.first_fix_s, 0) + ' s; ' + refusals + ' refusals after it') : (RUN.state === 'running' ? 'waiting for the first fix' + (liveInfo.last_refusal ? ': ' + liveInfo.last_refusal : '') : 'no fix' + (liveInfo.last_refusal ? ' (' + liveInfo.last_refusal + ')' : ''));
   const names = { starting: 'Starting demo', warmup: 'Warmup', measuring: 'Measuring', stopping: 'Stopping demo', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
   const tiles = [['Phase', phase ? names[phase] : 'Idle', RUN.state === 'idle' ? 'Start a run from the Scenario tab' : RUN.name], ['Elapsed', RUN.state === 'idle' ? '-' : Math.round(RUN.elapsed) + ' s', RUN.state === 'running' ? 'of about ' + total + ' s' : ''],
-    ['Fixes', f.length, refusals + ' refusals' + (liveInfo.last_refusal ? ' (last: ' + liveInfo.last_refusal + ')' : '')], ['rms error', fmt(rms) + ' m', 'so far'], ['95 %', fmt(p95) + ' m', 'so far'],
+    ['Fixes', f.length, fixSub], ['rms error', fmt(rms) + ' m', 'so far'], ['95 %', fmt(p95) + ' m', 'so far'],
     ['Real / claimed', fmt(ratio, 2), 'below 1: claim is on the safe side']];
   $('liveTiles').innerHTML = tiles.map(t => `<div class="stat-tile"><div class="label">${t[0]}</div><div class="val">${t[1]}</div><div class="sub">${t[2] || ''}</div></div>`).join('');
   $('progress').style.width = RUN.state === 'idle' ? '0%' : RUN.state === 'running' ? Math.min(99, RUN.elapsed / total * 100) + '%' : '100%';
@@ -284,16 +285,18 @@ $('stopBtn').addEventListener('click', async () => { try { await api('/api/run/s
 /* results */
 const selected = new Set(), cache = {};
 let RESULTS = [];
-const refusalText = r => Object.entries(r.summary.refusals).map(([k, v]) => `${k}: ${v}`).join(', ') || 'none';
+const joinCounts = d => Object.entries(d || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
+const refusalText = r => { const s = r.summary; if (s.first_fix_s === undefined) return joinCounts(s.refusals) || 'none'; if (s.fixes === 0) return 'no fix because: ' + (joinCounts(s.startup_refusals) || 'no record'); return joinCounts(s.refusals) || 'none'; };
+const firstFixText = r => { const s = r.summary; return s.first_fix_s === undefined ? '-' : s.fixes === 0 ? 'no fix' : s.first_fix_s === null ? '-' : Math.round(s.first_fix_s) + ' s'; };
 const stampText = s => s.replace(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/, '$1-$2-$3 $4:$5');
 async function loadResults() {
   try { RESULTS = (await api('/api/results')).results; } catch (e) { toast(e.message, 'error'); return; }
   const tb = $('resTable').querySelector('tbody'); tb.innerHTML = '';
-  if (!RESULTS.length) { tb.innerHTML = '<tr><td colspan="9" class="note">No stored runs yet. Start one from the Scenario tab.</td></tr>'; return; }
+  if (!RESULTS.length) { tb.innerHTML = '<tr><td colspan="10" class="note">No stored runs yet. Start one from the Scenario tab.</td></tr>'; return; }
   RESULTS.forEach(r => {
     const s = r.summary, tr = document.createElement('tr'); tr.className = 'row' + (selected.has(r.file) ? ' sel' : '');
     const bad = s.fixes === 0 ? 'badge-danger' : s.rms_m > 10 ? 'badge-warning' : 'badge-success';
-    tr.innerHTML = `<td><input type="checkbox" ${selected.has(r.file) ? 'checked' : ''} style="width:auto"></td><td><strong>${r.name}</strong></td><td>${stampText(r.started)}</td><td class="num">${s.fixes}</td><td class="num"><span class="badge ${bad}">${fmt(s.rms_m)}</span></td><td class="num">${fmt(s.p95_m)}</td><td class="num">${fmt(s.claimed_mean_m)}</td><td class="num">${fmt(s.claimed_ratio, 2)}</td><td>${refusalText(r)}</td>`;
+    tr.innerHTML = `<td><input type="checkbox" ${selected.has(r.file) ? 'checked' : ''} style="width:auto"></td><td><strong>${r.name}</strong></td><td>${stampText(r.started)}</td><td class="num">${firstFixText(r)}</td><td class="num">${s.fixes}</td><td class="num"><span class="badge ${bad}">${fmt(s.rms_m)}</span></td><td class="num">${fmt(s.p95_m)}</td><td class="num">${fmt(s.claimed_mean_m)}</td><td class="num">${fmt(s.claimed_ratio, 2)}</td><td>${refusalText(r)}</td>`;
     tr.querySelector('input').addEventListener('click', e => { e.stopPropagation(); e.target.checked ? selected.add(r.file) : selected.delete(r.file); tr.classList.toggle('sel', e.target.checked); });
     tr.addEventListener('click', () => showDetail(r));
     tb.appendChild(tr);
@@ -318,7 +321,7 @@ $('clearBtn').addEventListener('click', () => { selected.clear(); $('cmpCard').h
 async function showDetail(r) {
   const d = await full(r.file), s = r.summary, per = Object.entries(s.rstd_error_ns || {});
   $('detail').innerHTML = `<div class="card"><div class="card-title">${r.name}</div><p class="note">${(d.scenario && d.scenario.note) || ''}</p>
-    <div class="stat-grid">${[['Fixes', s.fixes], ['rms error', fmt(s.rms_m) + ' m'], ['Median', fmt(s.p50_m) + ' m'], ['95 %', fmt(s.p95_m) + ' m'], ['Max', fmt(s.max_m) + ' m'], ['Claimed', fmt(s.claimed_mean_m) + ' m'], ['Offset east / north', fmt(s.east_err_mean_m) + ' / ' + fmt(s.north_err_mean_m) + ' m'], ['Scatter east / north', fmt(s.east_err_sd_m) + ' / ' + fmt(s.north_err_sd_m) + ' m']]
+    <div class="stat-grid">${[['Fixes', s.fixes], ['First fix after', firstFixText(r)], ['rms error', fmt(s.rms_m) + ' m'], ['Median', fmt(s.p50_m) + ' m'], ['95 %', fmt(s.p95_m) + ' m'], ['Max', fmt(s.max_m) + ' m'], ['Claimed', fmt(s.claimed_mean_m) + ' m'], ['Offset east / north', fmt(s.east_err_mean_m) + ' / ' + fmt(s.north_err_mean_m) + ' m'], ['Scatter east / north', fmt(s.east_err_sd_m) + ' / ' + fmt(s.north_err_sd_m) + ' m']]
       .map(t => `<div class="stat-tile"><div class="label">${t[0]}</div><div class="val">${t[1]}</div></div>`).join('')}</div>
     <div class="grid2"><div><svg class="plot" id="dScatter" viewBox="0 0 460 360"></svg></div><div><svg class="plot" id="dTime" viewBox="0 0 460 360"></svg></div></div>
     <h3 class="sec">Time-difference error per cell</h3>
