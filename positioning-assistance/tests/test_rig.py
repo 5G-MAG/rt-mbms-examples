@@ -214,6 +214,19 @@ class NoiseTests(unittest.TestCase):
             es = m.scale ** 2
             self.assertAlmostEqual(10 * math.log10(es / var_down), snr, delta=0.4, msg=f"{snr} dB")
 
+    def test_the_noise_comes_from_one_pool_and_is_not_the_same_for_every_block(self):
+        # the rig keeps pace with the stream only if a block's noise costs less than the block's 1 ms (see Mixer._noise)
+        m = Mixer([], lambda c, t: 0.0, lambda: 10**18, snr_db=10.0, seed=2)
+        self.assertIsNone(m._noise_pool)
+        first = m._noise(BLOCK).copy()
+        pool = m._noise_pool
+        second = m._noise(BLOCK).copy()
+        self.assertIs(m._noise_pool, pool)
+        self.assertEqual((len(first), len(second)), (BLOCK, BLOCK))
+        self.assertFalse(np.array_equal(first, second))
+        wrapped = [m._noise(BLOCK) for _ in range(40)]            # reads that run past the end of the pool still give whole blocks
+        self.assertTrue(all(len(w) == BLOCK for w in wrapped))
+
     def test_no_noise_before_the_lock_or_when_not_asked(self):
         x = real_stream(3, 85.3)
         quiet = run(Mixer([], lambda c, t: 0.0, lambda: 10**18), x)

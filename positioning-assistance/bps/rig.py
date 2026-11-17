@@ -25,6 +25,7 @@ from .sync import cas_subframe
 
 FS = 15.36e6                 # sample rate of the transmitter's ZMQ stream
 BLOCK = 15360                # samples per message: 1 ms
+NOISE_POOL = 1 << 22         # samples of the noise pool (0.27 s of the stream)
 CAS_PERIOD = 614400          # 40 ms: cell acquisition subframes of an MBMS-dedicated cell, 25 PRB (frames with n_f mod 4 = 0)
 _PAD = 16384                 # length used for a fractionally delayed subframe
 
@@ -118,6 +119,7 @@ class Mixer:
         self._lock_ref = self._sync_ref + (upsample2(prs_subframe(real_cell_id, 0, n_rb, n_f=0, normal_cp=normal_cp)) if real_cell_has_prs else 0.0)
         self._waves = {c.cell_id: upsample2(prs_subframe(c.cell_id if c.prs_id is None else c.prs_id, 0, n_rb, n_f=0,
                                                     normal_cp=normal_cp if c.normal_cp is None else c.normal_cp)) for c in cells}
+        self._noise_pool: Optional[np.ndarray] = None
         self.snr_db = snr_db         # white noise added to the whole stream once locked, for measuring what a receiver does at a given signal to noise ratio
         self._rng = np.random.default_rng(seed)
         self.lock_quality = 0.0       # match of the latest lock attempt over the background
@@ -170,6 +172,16 @@ class Mixer:
                 self.injected += 1
             self._next_occasion += 1
 
+    def _noise(self, n: int) -> np.ndarray:
+        """`n` samples of white complex noise of variance 2 per sample, read at a random start from a pool drawn once. A block is 1 ms of stream and the rig must process
+        it in less than that to keep pace with the transmitter: drawing the noise afresh for every block takes more."""
+        if self._noise_pool is None:
+            self._noise_pool = self._rng.standard_normal(2 * NOISE_POOL, dtype=np.float32).view(np.complex64)
+        start = int(self._rng.integers(0, NOISE_POOL))
+        if start + n <= NOISE_POOL:
+            return self._noise_pool[start: start + n]
+        return np.concatenate((self._noise_pool[start:], self._noise_pool[: start + n - NOISE_POOL]))
+
     def process(self, block: np.ndarray) -> np.ndarray:
         """Takes one message of the transmitter's stream, returns the same samples with the emulated cells added."""
         block = np.asarray(block, dtype=np.complex64)
@@ -187,7 +199,7 @@ class Mixer:
             # Es/N0 per resource element at the modem, which takes the stream down to 7.68 Msps: a resource element of unit power is `scale` in amplitude and the noise
             # of variance v per sample at 15.36 Msps leaves v / 2 per sample, and per bin, after the filter that halves the rate.
             v = 2.0 * self.scale ** 2 / 10 ** (self.snr_db / 10.0)
-            out += math.sqrt(v / 2.0) * (self._rng.standard_normal(n) + 1j * self._rng.standard_normal(n))
+            out += np.float32(math.sqrt(v / 2.0)) * self._noise(n)
         keep = []
         for i0, w in self._pending:
             lo, hi = max(i0, self._n0), min(i0 + len(w), self._n0 + n)
