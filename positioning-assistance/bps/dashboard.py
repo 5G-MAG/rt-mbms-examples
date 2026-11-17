@@ -125,7 +125,8 @@ class Dashboard:
         except (OSError, ValueError):
             return {"state": "idle"}
         phase, now = st.get("phase"), time.time()
-        out = {"name": st.get("name"), "seconds": st.get("seconds"), "phase": phase, "started": st.get("started"), "elapsed": round(now - st.get("started", now), 1),
+        end = now if phase in scenario_run.ACTIVE else st.get("updated", now)         # a run that has ended stops counting
+        out = {"name": st.get("name"), "seconds": st.get("seconds"), "phase": phase, "started": st.get("started"), "elapsed": round(end - st.get("started", end), 1),
                "error": st.get("error"), "result": Path(st["result"]).name if st.get("result") else None}
         if phase in scenario_run.ACTIVE:
             alive = pid_alive(st["pid"]) if st.get("pid") else now - st.get("started", 0) < STARTING_GRACE_S

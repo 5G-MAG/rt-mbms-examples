@@ -216,6 +216,13 @@ class Running(Base):
         self.assertIn("without a final status", s["error"])
         self.assertEqual(self.start()[0], 200)                                                    # and it does not block a new run
 
+    def test_the_elapsed_time_of_an_ended_run_stops_at_its_last_update(self):
+        (self.results / ".run-status.json").write_text(json.dumps({"pid": None, "name": "old", "seconds": 40, "phase": "done", "started": time.time() - 5000, "updated": time.time() - 4940,
+                                                                   "log": None, "records": None, "result": None, "error": None}))
+        s = self.run_state()
+        self.assertEqual(s["state"], "finished")
+        self.assertAlmostEqual(s["elapsed"], 60, delta=1)
+
     def test_results_are_named_only_from_the_list(self):
         (self.results / "good-1.json").write_text("{}")
         for bad in ("../secret.json", "..%2fsecret.json", ".hidden.json", "good-1.json%00", "nothing.json", "a/b.json"):
