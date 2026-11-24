@@ -36,3 +36,10 @@
 build
 cmake-build-debug
 lib/rt-libflute
+
+# Generated ffmpeg output, not source
+flute-ffmpeg/watchfolder/
+
+# Machine-specific overrides, committed beside them as local.env.example.
+scripts/*/local.env
+scripts/tmux/local.env

@@ -2,13 +2,13 @@
 
 ## Introduction
 
-The goal of this example project is to provide a tool that enables rt-mbms-mw development without the need for the
+The goal of this example project is to provide a tool that enables rt-mbms-client development without the need for the
 rt-mbms-modem. The basic idea is depicted in the illustration below:
 
 ![Architecture](files/wiki/flute-ffmpeg-architecture.png)
 
 We use ffmpeg to create a DASH or HLS live stream from a VoD file. The resulting manifest files and segments are written to a
-watchfolder and send via rt-libflute as a multicast to the rt-mbms-mw for further processing. rt-wui or a plain dash.js/hls.js
+watchfolder and send via rt-libflute as a multicast to the rt-mbms-client for further processing. rt-mbms-application or a plain dash.js/hls.js
 can be used for playback.
 
 ## Installation
@@ -43,7 +43,7 @@ sudo cmake --build . --target install
 
 #### Install libpistache
 
-We use pistache as a REST framework to initialize the rt-mbms-mw. We expose only one route that returns the multicast
+We use pistache as a REST framework to initialize the rt-mbms-client. We expose only one route that returns the multicast
 channel information.
 
 ````
@@ -59,6 +59,16 @@ sudo apt install libpistache-dev
 ````
 git clone --recurse-submodules https://github.com/5G-MAG/rt-mbms-examples
 ```` 
+
+> **Known issue on current toolchains:** the `flute-ffmpeg/lib/rt-libflute` submodule points at
+> 5G-MAG's `rt-libflute` `development` branch, which still uses `boost::asio::io_service` /
+> `deadline_timer` -- APIs Boost 1.90 removed. On a system whose only Boost is 1.90+ (any current
+> Ubuntu), this build fails with `'io_service' has not been declared` and similar errors. A fix
+> exists (port to `io_context`/`steady_timer`, plus one line in this project's own
+> `src/FluteFfmpeg.h`) but as of this writing lives only on a personal fork, not yet upstreamed to
+> 5G-MAG. Until it lands, either apply that port to the submodule yourself, or build against an
+> older Boost (see the lab-wide tutorial's `-DBOOST_ROOT=/opt/boost-legacy` approach for how to set
+> one up alongside your system Boost).
 
 ### Build setup
 
@@ -89,7 +99,7 @@ general : {
           multicast_port = 40101;
           mtu = 1500;
           rate_limit = 1200000;
-          watchfolder_path = "/home/dsi/5G-MAG/simple-express-server/public/watchfolder/hls";
+          watchfolder_path = "/home/<you>/rt-mbms-examples/flute-ffmpeg/watchfolder/hls";
           path_to_transmit = ""
           stream_type = "hls";
           transmit_service_announcement = false;
@@ -113,9 +123,9 @@ the `stream_type` setting in the configuration needs to be adjusted accordingly.
 
 ### Configure watchfolder output path
 
-We assume that the nginx proxy for rt-mbmbs-modem and rt-mbms-mw has been installed and is running. We reuse the nginx
+We assume that the nginx proxy for rt-mbms-modem and rt-mbms-client has been installed and is running. We reuse the nginx
 as a watchfolder. Any other path can be used as well. Using the nginx as a watchfolder enables us to play the generated
-DASH and HLS manifests and segments before FLUTE encoding them and multicasting to the rt-mbms-mw.
+DASH and HLS manifests and segments before FLUTE encoding them and multicasting to the rt-mbms-client.
 
 ````
 sudo mkdir /var/www/watchfolder_out
@@ -136,7 +146,7 @@ needs to be adjusted accordingly.
 
 ### Configure the RESTful API
 
-rt-mbms-mw requires a multicast channel information file that is usually queried from the REST API of the modem. As part
+rt-mbms-client requires a multicast channel information file that is usually queried from the REST API of the modem. As part
 of this example project we use a separate webserver that provides the file. By default this server starts with the
 default settings that are also used for the rt-mbms-modem.
 
@@ -144,33 +154,16 @@ Configuration changes can be made in `src/HttpHandler.cpp` and `main_server.cpp`
 
 ## Running
 
-#### 1. Start the rt-mbms-mw
+#### 1. Start rt-mbms-client
 
-See the [documentation](https://github.com/5G-MAG/rt-mbms-mw) for details
-
-Important: In order for the manifest files and the media segments to be available from the Middleware flute_ffmpeg
-processing needs to be enabled in the configuration of the MW. In addition, we need to define a 60 second `max_file_age` 
-for the middleware cache:
-
-Open the configuration file:
-
-````
-sudo nano /etc/5gmag-rt.conf 
-````
-
-Adjust the configuration accordingly:
-
-````
-mw: {
-  flute_ffmpeg: {
-    enabled:true
-  },
-  cache: {
-    max_file_age: 60,
-    max_total_size: 256
-  }
-}
-````
+See the [documentation](https://github.com/5G-MAG/rt-mbms-client) for details. No special
+`flute_ffmpeg`-style config key is needed on the client side -- there is no such key in the
+current codebase (confirmed by grepping rt-mbms-client's source; an older revision of this
+doc described one, but it never matched anything the client actually reads). The client
+discovers this tool's FLUTE-delivered content automatically from the service announcement, the
+same way it discovers any other MBMS service. If your cache's default `max_file_age` is too
+short for your segment duration, raise it in `client.cache.max_file_age` (see rt-mbms-client's
+README).
 
 #### 2. Start the HTTP Server
 
@@ -198,10 +191,20 @@ cd files
 sh ffmpeg-hls.sh
 ````
 
-#### 4. Start the rt-wui
+#### 5. Start rt-mbms-application
 
-See the [documentation](https://github.com/5G-MAG/rt-wui) for details.
+See the [documentation](https://github.com/5G-MAG/rt-mbms-application) for details.
 
 #### Other players
 
-The streams can also be played outside of the rt-wui for instance in a plain dash.js or hls.js.
+The streams can also be played outside of rt-mbms-application, for instance in a plain dash.js or hls.js.
+
+#### An alternative: broadcast it for real, through the BM-SC
+
+This standalone tool talks FLUTE directly to rt-mbms-client, bypassing the BM-SC and MBMS-GW
+entirely -- good for client-side development without a modem. To actually put this same ffmpeg
+output out over the air (BM-SC ingests it via xMB, FLUTE-encodes it, and it goes through the real
+MBMS-GW/eNB/modem chain), see
+`../scripts/tmux/mbms-broadcast-tutorial/` instead: serve `watchfolder/hls/` over plain HTTP and
+point an xMB Application/Pull session's `applicationEntryPointURL` at it (its
+`demo-content/README.md` and `ffmpeg-local.json` walk through exactly this).
